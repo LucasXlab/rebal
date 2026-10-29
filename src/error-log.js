@@ -30,13 +30,14 @@ export function fallbackLogPath(tmpDir = os.tmpdir()) {
  * @param {object} options
  * @param {string|undefined} options.stateDir
  * @param {import('./errors.js').RebalError} options.error
- * @param {unknown} [options.cause] 原始异常（用于记录 stack）
+ * @param {string} [options.stack] 原始异常的 stack
  * @param {string} [options.tmpDir]
  * @returns {{file: string, fellBack: boolean}}
  */
 export function appendErrorLog(options) {
   const entry = {
-    time: formatIsoLocal(new Date(options.now?.() ?? Date.now())),
+    // 用真实时间：错误日志是给人排查用的，不该被注入的时钟影响，也不能因为时钟坏了写不进去
+    time: formatIsoLocal(new Date()),
     code: options.error.code,
     exitCode: options.error.exitCode,
     message: options.error.message,

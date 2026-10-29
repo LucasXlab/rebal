@@ -77,6 +77,7 @@ export async function resolveFx(options) {
   const fx = new Map();
   /** @type {string[]} */
   const warnings = [];
+  const log = options.log ?? { info: () => {}, debug: () => {} };
   const needed = options.currencies.filter((c) => c !== baseCurrency);
 
   fx.set(baseCurrency, {
@@ -146,6 +147,7 @@ export async function resolveFx(options) {
         offline,
       });
       if (hit) {
+        log.info(`汇率缓存命中 ${currency}（${hit.entry.fetchedAt}）`);
         fx.set(currency, {
           rateToBase: hit.entry.price,
           source: hit.entry.source,

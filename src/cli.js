@@ -6,6 +6,7 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { asRebalError, EXIT, RebalError } from './errors.js';
@@ -90,6 +91,7 @@ const COMMANDS = Object.keys(COMMAND_OPTIONS);
  * @property {number|undefined} columns
  * @property {boolean} noColor
  * @property {'auto'|'always'|'never'} colorMode
+ * @property {string} tmpDir 错误日志的兜底目录（默认 os.tmpdir()）
  */
 
 /**
@@ -110,6 +112,7 @@ export function createApp(overrides = {}) {
     columns: overrides.columns,
     noColor: overrides.noColor ?? env.NO_COLOR !== undefined,
     colorMode: overrides.colorMode ?? 'auto',
+    tmpDir: overrides.tmpDir ?? os.tmpdir(),
   };
 }
 
@@ -127,7 +130,7 @@ export async function run(argv, overrides = {}) {
     if (values.color !== undefined && !['auto', 'always', 'never'].includes(values.color)) {
       throw new RebalError('usage', `--color 只能是 auto/always/never，当前是 ${values.color}`);
     }
-    app.colorMode = values.color ?? 'auto';
+    if (values.color !== undefined) app.colorMode = values.color;
 
     const ctx = {
       app,
@@ -140,6 +143,7 @@ export async function run(argv, overrides = {}) {
       json: Boolean(values.json),
       quiet: Boolean(values.quiet),
       offline: Boolean(values.offline),
+      logLevel: values.verbose ? 'info' : values.quiet ? 'error' : undefined,
     };
 
     if (values.help && command !== 'help') {
@@ -268,7 +272,7 @@ function commandInit(ctx) {
 async function commandStatus(ctx) {
   const { app, values } = ctx;
   const basics = loadBasics(ctx);
-  const loaded = await loadPrices(app, basics, { offline: ctx.offline });
+  const loaded = await loadPrices(app, basics, { offline: ctx.offline, logLevel: ctx.logLevel });
   const render = renderOptions(ctx);
 
   const payload = {
@@ -357,7 +361,7 @@ async function commandPlan(ctx) {
   }
 
   const allowSell = values['no-sell'] ? false : values.sell ? true : basics.config.policy.allowSell;
-  const loaded = await loadPrices(app, basics, { cash, offline: ctx.offline });
+  const loaded = await loadPrices(app, basics, { cash, offline: ctx.offline, logLevel: ctx.logLevel });
 
   const allocation = allocate({
     classes: Object.entries(loaded.config.targets).map(([classId, targetWeight]) => ({
@@ -459,7 +463,11 @@ async function commandPrices(ctx) {
     throw new RebalError('invalid_input', '--refresh 与 --offline 不能同时用');
   }
   const basics = loadBasics(ctx);
-  const loaded = await loadPrices(app, basics, { offline: ctx.offline, refresh: Boolean(values.refresh) });
+  const loaded = await loadPrices(app, basics, {
+    offline: ctx.offline,
+    refresh: Boolean(values.refresh),
+    logLevel: ctx.logLevel,
+  });
   const render = renderOptions(ctx);
 
   if (ctx.json) {
@@ -537,7 +545,7 @@ function reportError(app, err, json, argv) {
     stateDir,
     error: err,
     stack: err.cause instanceof Error ? err.cause.stack : undefined,
-    now: app.now,
+    tmpDir: app.tmpDir,
   });
   if (logged.fellBack) {
     app.stderr(`（错误日志写到 ${logged.file}：${stateDir ?? 'state 目录'}不可写）\n`);

@@ -232,11 +232,14 @@ export function makeProject(t, options = {}) {
   const clock = makeClock();
   const waits = makeSleep();
   const captured = { stdout: '', stderr: '' };
+  const tmpDir = path.join(dir, 'tmp');
+  fs.mkdirSync(tmpDir, { recursive: true });
   return {
     dir,
     clock,
     waits,
     captured,
+    tmpDir,
     env: { ...CLEAN_ENV, ...mockEnv, ...(options.env ?? {}) },
     /** @type {typeof fetch|undefined} */
     fetchImpl: undefined,
@@ -271,6 +274,7 @@ export async function runCli(argv, project, overrides = {}) {
     isTty: overrides.isTty ?? false,
     columns: overrides.columns,
     colorMode: overrides.color ?? 'never',
+    tmpDir: overrides.tmpDir ?? project.tmpDir,
   });
   return { code, stdout, stderr };
 }

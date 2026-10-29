@@ -46,6 +46,9 @@ export function redactUrl(url) {
 export function createHttp(deps = {}) {
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch;
   const sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const log = deps.log ?? { info: () => {}, debug: () => {} };
+  /** 请求次数统计（`--verbose` 汇总用）。 */
+  const stats = { requests: 0, retries: 0 };
 
   /**
    * 取一个文本资源。
@@ -65,10 +68,18 @@ export function createHttp(deps = {}) {
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       if (attempt > 0) {
         // 第 k 次重试前等 500 × 2^(k-1)：500 / 1000 / 2000 / 4000
-        await sleep(500 * 2 ** (attempt - 1));
+        stats.retries += 1;
+        const waitMs = 500 * 2 ** (attempt - 1);
+        log.info(`第 ${attempt} 次重试，等 ${waitMs}ms：${redactUrl(url)}`);
+        await sleep(waitMs);
       }
       try {
+        log.debug(`GET ${redactUrl(url)}`);
+        const startedAt = Date.now();
+        stats.requests += 1;
         const result = await once(url, { timeoutMs, maxBytes, headers: options.headers });
+        log.info(`请求完成 HTTP ${result.status}，${Date.now() - startedAt}ms：${redactUrl(url)}`);
+        log.debug(`响应前 200 字符：${String(result.body).slice(0, 200)}`);
         if (result.status >= 200 && result.status < 300) return result;
 
         if (result.status === 429) {
@@ -137,7 +148,7 @@ export function createHttp(deps = {}) {
     return { status: response.status, body, headers: response.headers };
   }
 
-  return { requestText };
+  return { requestText, stats };
 }
 
 /**

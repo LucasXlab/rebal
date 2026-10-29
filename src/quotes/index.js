@@ -25,7 +25,17 @@ export const BATCH_INTERVAL_MS = 1000;
  */
 
 /**
+ * @typedef {object} QuoteTarget
+ * @property {string} symbol
+ * @property {string} quoteId
+ * @property {string} currency
+ * @property {number|null} price 持仓里写死的自报价（有就优先用）
+ * @property {string|null} asOf 自报价日期
+ */
+
+/**
  * @param {object} options
+ * @param {QuoteTarget[]} options.targets 需要定价的符号（持仓符号 ∪ 各类别首选符号）
  * @param {import('../holdings.js').Holdings} options.holdings
  * @param {ReturnType<typeof import('../config.js').defaults>} options.config
  * @param {{quoteUrl: string, mockQuotesFile: string}} options.runtime
@@ -39,29 +49,31 @@ export const BATCH_INTERVAL_MS = 1000;
  * @returns {Promise<{quotes: Map<string, ResolvedQuote>, warnings: string[]}>}
  */
 export async function resolveQuotes(options) {
-  const { holdings, config, runtime, cache, http, now, sleep, offline, refresh } = options;
+  const { config, runtime, cache, http, now, sleep, offline, refresh } = options;
+  const targets = options.targets;
   const ttlMs = config.quotes.ttlMinutes * 60_000;
   /** @type {Map<string, ResolvedQuote>} */
   const quotes = new Map();
   /** @type {string[]} */
   const warnings = [];
+  const log = options.log ?? { info: () => {}, debug: () => {} };
+  const stats = { cacheHits: 0, requested: 0 };
 
   /** 需要联网取的符号（quoteId → symbols[]，多个符号可共用一个 quote_id） */
   /** @type {Map<string, string[]>} */
   const pending = new Map();
 
-  for (const [symbol, row] of holdings.bySymbol) {
-    const asset = config.assets[symbol];
-    if (!asset) continue; // 由 unknown_symbol 校验负责
+  for (const target of targets) {
+    const { symbol } = target;
 
-    // 1. CSV 覆盖价：不查缓存、不发请求
-    if (row.price !== null) {
+    // 1. 持仓里的自报价：不查缓存、不发请求
+    if (target.price !== null && target.price !== undefined) {
       quotes.set(symbol, {
-        price: row.price,
-        currency: row.currency ?? asset.currency,
+        price: target.price,
+        currency: target.currency,
         source: 'override',
         provider: 'override',
-        fetchedAt: options.formatIso(now()),
+        fetchedAt: target.asOf ? `${target.asOf}T00:00:00` : options.formatIso(now()),
         fetchedAtMs: now(),
         stale: false,
       });
@@ -74,15 +86,17 @@ export async function resolveQuotes(options) {
         group: 'quotes',
         key: symbol,
         provider: config.quotes.provider,
-        quoteId: asset.quoteId,
+        quoteId: target.quoteId,
         ttlMs,
         now: now(),
         offline,
       });
       if (hit) {
+        stats.cacheHits += 1;
+        log.info(`行情缓存命中 ${symbol}（${hit.entry.fetchedAt}，${hit.stale ? '已过期' : '未过期'}）`);
         quotes.set(symbol, {
           price: hit.entry.price,
-          currency: asset.currency,
+          currency: target.currency,
           source: hit.entry.source,
           provider: hit.entry.provider,
           fetchedAt: hit.entry.fetchedAt,
@@ -98,15 +112,17 @@ export async function resolveQuotes(options) {
         group: 'quotes',
         key: symbol,
         provider: config.quotes.provider,
-        quoteId: asset.quoteId,
+        quoteId: target.quoteId,
         ttlMs,
         now: now(),
         offline,
       });
       if (hit && offline) {
+        stats.cacheHits += 1;
+        log.info(`行情缓存命中 ${symbol}（离线，${hit.entry.fetchedAt}）`);
         quotes.set(symbol, {
           price: hit.entry.price,
-          currency: asset.currency,
+          currency: target.currency,
           source: hit.entry.source,
           provider: hit.entry.provider,
           fetchedAt: hit.entry.fetchedAt,
@@ -125,9 +141,9 @@ export async function resolveQuotes(options) {
       });
     }
 
-    const list = pending.get(asset.quoteId) ?? [];
-    list.push(symbol);
-    pending.set(asset.quoteId, list);
+    const list = pending.get(target.quoteId) ?? [];
+    list.push({ symbol, currency: target.currency });
+    pending.set(target.quoteId, list);
   }
 
   if (pending.size > 0) {
@@ -138,6 +154,8 @@ export async function resolveQuotes(options) {
       });
     }
 
+    stats.requested += quoteIds.length;
+    log.info(`需要取价 ${quoteIds.length} 个符号（provider=${config.quotes.provider}）：${quoteIds.join(',')}`);
     if (config.quotes.provider === 'tencent') {
       for (let start = 0; start < quoteIds.length; start += BATCH_SIZE) {
         if (start > 0) await sleep(BATCH_INTERVAL_MS);
@@ -150,26 +168,25 @@ export async function resolveQuotes(options) {
         });
         for (const quoteId of batch) {
           const hit = prices.get(quoteId);
-          const symbols = pending.get(quoteId) ?? [];
+          const entries = pending.get(quoteId) ?? [];
           if (!hit) {
-            for (const symbol of symbols) quoteNotFound(symbol, quoteId);
+            for (const entry of entries) quoteNotFound(entry.symbol, quoteId);
           }
           const fetchedAtMs = now();
           const fetchedAt = options.formatIso(fetchedAtMs);
-          for (const symbol of symbols) {
-            const asset = config.assets[symbol];
-            quotes.set(symbol, {
+          for (const entry of entries) {
+            quotes.set(entry.symbol, {
               price: hit.price,
-              currency: asset.currency,
+              currency: entry.currency,
               source: 'tencent',
               provider: 'tencent',
               fetchedAt,
               fetchedAtMs,
               stale: false,
             });
-            store(cache, 'quotes', symbol, {
+            store(cache, 'quotes', entry.symbol, {
               price: hit.price,
-              currency: asset.currency,
+              currency: entry.currency,
               fetchedAt,
               fetchedAtMs,
               source: 'tencent',
@@ -184,20 +201,21 @@ export async function resolveQuotes(options) {
     } else if (config.quotes.provider === 'csv') {
       const priceFile = options.resolvePriceFile?.();
       const table = readPriceFile(priceFile);
-      for (const [quoteId, symbols] of pending) {
-        for (const symbol of symbols) {
-          const hit = table.get(symbol) ?? table.get(quoteId);
+      for (const [quoteId, entries] of pending) {
+        for (const entry of entries) {
+          const hit = table.get(entry.symbol) ?? table.get(quoteId);
           if (!hit || !(hit.price > 0)) {
-            throw new RebalError('quote_not_found', `自报价文件里没有 ${symbol}`, {
-              issues: [{ path: symbol, message: `在 ${priceFile} 里加一行 ${symbol},<价格>,<货币>,<日期>` }],
+            throw new RebalError('quote_not_found', `自报价文件里没有 ${entry.symbol}`, {
+              issues: [
+                { path: entry.symbol, message: `在 ${priceFile} 里加一行 ${entry.symbol},<价格>,<货币>,<日期>` },
+              ],
             });
           }
-          const asset = config.assets[symbol];
           const fetchedAtMs = now();
           const fetchedAt = options.formatIso(fetchedAtMs);
-          quotes.set(symbol, {
+          quotes.set(entry.symbol, {
             price: hit.price,
-            currency: hit.currency || asset.currency,
+            currency: hit.currency || entry.currency,
             source: 'csv',
             provider: 'csv',
             fetchedAt,
@@ -208,16 +226,15 @@ export async function resolveQuotes(options) {
       }
     } else {
       const mock = readMockQuotes(runtime.mockQuotesFile);
-      for (const [quoteId, symbols] of pending) {
+      for (const [quoteId, entries] of pending) {
         const hit = mock.quotes.get(quoteId);
-        for (const symbol of symbols) {
-          if (!hit) quoteNotFound(symbol, quoteId);
-          const asset = config.assets[symbol];
+        for (const entry of entries) {
+          if (!hit) quoteNotFound(entry.symbol, quoteId);
           // mock 数据的时间固定，stale 由 TTL 判定（演示时也会显示"缓存"）
           const fetchedAtMs = Date.parse(mock.fetchedAt);
-          quotes.set(symbol, {
+          quotes.set(entry.symbol, {
             price: hit.price,
-            currency: asset.currency,
+            currency: entry.currency,
             source: 'mock',
             provider: 'mock',
             fetchedAt: mock.fetchedAt,
@@ -229,5 +246,5 @@ export async function resolveQuotes(options) {
     }
   }
 
-  return { quotes, warnings };
+  return { quotes, warnings, stats };
 }

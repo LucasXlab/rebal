@@ -1,28 +1,44 @@
 # 进度
 
-最后更新：2026-10-29
+## 阶段 1：选题 ✅
 
-## 已完成
+产物：`docs/选题.md`（8 个候选、痛点证据、竞品、1–5 评分、逐项理由）。
+选定：**配平 rebal** — 跨账户多币种的定投／再平衡下单清单 CLI。
+记录：`notes/决定.md`（12 条关键决定）、`notes/参照.md`（19 条从 inkdove 学到并落地的做法）。
 
-- 阶段 1 选题：`docs/选题.md`（8 个候选、证据、竞品、打分、适用/不适用）
-- 参照仓库阅读笔记：`notes/参照.md`（19 条做法，逐条注明出处）
-- 决定记录：`notes/决定.md`
-- 项目骨架：git 仓库、`.gitignore`
-- 阶段 2 规格：`SPEC.md`（700 行）、`DESIGN.md`（终端输出规范）、`docs/external-apis.md`（实测记录）
-- 规格审稿：`notes/审稿记录.md`（4 个独立子代理，1 个失败、3 个共返回 23 条 + 自查 28 条，全部已改）
+## 阶段 2：规格 ✅
 
-## 进行中
+产物：`SPEC.md`（唯一契约，762 行）、`DESIGN.md`（终端输出规范）、`docs/external-apis.md`（外部接口实测记录）。
+审稿：4 个独立子代理做对抗式审查，23 条外部意见 + 28 条自查问题，全部修完（`notes/审稿记录.md`）。
 
-- 等待用户审阅规格（审阅模式：开）
+## 阶段 3：实现 ✅
 
-## 下一步
+按"地基 → 一个功能一个功能"推进，每个功能带测试与文档一起提交。
 
-1. 用户回复"继续"后：搭地基（package.json、errors、config、holdings、mock、测试辅助）
-2. 按 SPEC 逐个功能实现并提交（每个提交含代码 + 测试 + 文档）
-3. 阶段 4：从零安装、10 遍真实使用、3 个角度独立审查
-4. 阶段 5：README、CI、LICENSE、launch 材料、v0.1.0 标签
+| 功能 | 文件 | 测试 |
+|---|---|---|
+| F1 配置 | `src/config.js` | T1、T3–T8 |
+| F2 持仓 | `src/holdings.js` | T9–T13 |
+| F3 行情与汇率 | `src/quotes/*`、`src/fx/*` | T14–T22 |
+| F4 缓存 | `src/cache.js`、`src/load.js` | T23–T27 |
+| F5 估值与状态 | `src/portfolio.js`、`src/format/*` | T28–T32 |
+| F6 分配算法 | `src/allocate.js` | T33–T40 |
+| F7 计划与核对 | `src/plan.js` | T41–T44、T48 |
+| F8 CLI 与安全 | `src/cli.js`、`bin/rebal.js` | T2、T45–T47、T49 |
 
-## 已知问题
+- 测试：52 个用例全绿（`npm test`），覆盖 SPEC §9 的 T1–T49（另有 2 个解析/脱敏用例），
+  零网络、零固定 sleep、全部临时目录。
+- 偏差记录：`docs/deviations.md`（D1–D9）。
+- 端到端冒烟：`rebal init --demo` → `status` → `plan --cash 6000` → `check` 全通，
+  且 `plan` 的结果与 SPEC §5.8 算例逐字一致。
 
-- 工作区里其他并行会话会删改共用文件（`reference/` 被删过一次），本项目已隔离到 `rebal/` 目录。
-- 第 1 个审稿子代理因上下文耗尽没产出；把任务切小后，后 3 个都正常返回。见 `notes/审稿记录.md`。
+## 阶段 4：验证（进行中）
+
+- [ ] 全新 clone 安装实录 → `notes/安装实录.md`
+- [ ] 10 次真实运行（含 ≥5 个异常场景）
+- [ ] 3 个独立审稿子代理：正确性 / 安全与数据 / 新用户体验
+- [ ] 逐条复现并修复，补回归测试，再复审
+
+## 阶段 5：发布物料（未开始）
+
+README、README_EN、docs/features.md、CI、CHANGELOG、LICENSE、`v0.1.0` 标签、`launch/`。

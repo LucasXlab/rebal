@@ -8,18 +8,22 @@
 - 参照仓库阅读笔记：`notes/参照.md`（19 条做法，逐条注明出处）
 - 决定记录：`notes/决定.md`
 - 项目骨架：git 仓库、`.gitignore`
+- 阶段 2 规格：`SPEC.md`（700 行）、`DESIGN.md`（终端输出规范）、`docs/external-apis.md`（实测记录）
+- 规格自查：`notes/审稿记录.md`（28 条问题与处理结果）
 
 ## 进行中
 
-- 阶段 2 规格：`SPEC.md`、`DESIGN.md`、`docs/external-apis.md`
+- 等待用户审阅规格（审阅模式：开）
 
 ## 下一步
 
-1. 写完 SPEC.md（契约：命令、配置、数据模型、算法、错误码、测试要求）
-2. 写完 DESIGN.md（终端输出规范）与 docs/external-apis.md（已实测的外部接口）
-3. 独立子代理审稿，逐条修改
-4. 停下来等审阅（审阅模式：开）
+1. 用户回复"继续"后：搭地基（package.json、errors、config、holdings、mock、测试辅助）
+2. 按 SPEC 逐个功能实现并提交（每个提交含代码 + 测试 + 文档）
+3. 阶段 4：从零安装、10 遍真实使用、3 个角度独立审查
+4. 阶段 5：README、CI、LICENSE、launch 材料、v0.1.0 标签
 
 ## 已知问题
 
 - 工作区里其他并行会话会删改共用文件（`reference/` 被删过一次），本项目已隔离到 `rebal/` 目录。
+- **独立审稿子代理 3 次都没有返回结果**（30 分钟内无响应），规格改由自查 28 条替代；
+  详见 `notes/审稿记录.md`。

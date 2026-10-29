@@ -52,7 +52,7 @@ rebal/
     errors.js           RebalError、错误码与退出码映射
     version.js
   fixtures/             内置 mock 数据（随包发布）：quotes.mock.json、fx.mock.json
-  test/                 node:test，48 个用例，见第 9 节
+  test/                 node:test，49 个用例，见第 9 节
   docs/                 features.md、development.md、deviations.md、external-apis.md
   rebal.toml            示例配置（init 生成的模板）
   .env.example
@@ -79,9 +79,9 @@ rebal/
 
 | 变量 | 默认 | 必填 | 非法时 |
 |---|---|---|---|
-| `REBAL_CONFIG` | `./rebal.toml` | 否 | 文件不存在 → 退出码 2，`config_not_found`，提示运行 `rebal init` |
-| `REBAL_HOLDINGS` | 取配置里的 `holdings.path` | 否 | 同上，`holdings_not_found` |
-| `REBAL_STATE_DIR` | `./.rebal` | 否 | 无法创建或不可写 → 退出码 2，`state_dir_unwritable` |
+| `REBAL_CONFIG` | `<dir>/rebal.toml` | 否 | 文件不存在 → 退出码 2，`config_not_found`，提示运行 `rebal init` |
+| `REBAL_HOLDINGS` | 取配置里的 `holdings.path` | 否 | 文件不存在 → 退出码 2，`holdings_not_found`，信息里带路径 |
+| `REBAL_STATE_DIR` | `<dir>/.rebal` | 否 | 无法创建或不可写 → 退出码 2，`state_dir_unwritable` |
 | `REBAL_QUOTE_PROVIDER` | 取配置 `quotes.provider` | 否 | 不在 `tencent|csv|mock` → 退出码 2，`invalid_env`，`error` 里列出允许值 |
 | `REBAL_FX_PROVIDER` | 取配置 `fx.provider` | 否 | 不在 `frankfurter|static|mock` → 退出码 2，`invalid_env` |
 | `REBAL_OFFLINE` | `0` | 否 | 只接受 `0/1/true/false`，否则退出码 2，`invalid_env` |
@@ -94,6 +94,9 @@ rebal/
 | `REBAL_MOCK_FX_FILE` | `<包目录>/fixtures/fx.mock.json` | 否 | 同上 |
 | `NO_COLOR` | 未设置 | 否 | 只要存在（任意值）就不输出 ANSI 颜色 |
 | `TZ` | 系统时区 | 否 | 非法时由 Node 自行回退到 UTC；所有时间戳按此变量格式化 |
+
+取值优先级：命令行参数 > 环境变量 > `rebal.toml` > 内置默认值。例如 `--cash` 优先于
+`contribution.amount`；`REBAL_QUOTE_PROVIDER` 优先于 `quotes.provider`。
 
 - 任何日志、错误信息、`--json` 输出里，都不得出现密钥明文。v0.1.0 本身不需要任何密钥；为防以后加入，`http.js` 统一对 URL 中的 `token`、`key`、`api_key`、`secret` 查询参数打码为 `***`（测试 T41）。
 - `REBAL_QUOTE_URL` 与 `REBAL_FX_URL` 只用于测试与自建代理；默认值是唯一会在正常使用中访问的主机。
@@ -166,14 +169,17 @@ lot_size = 1                  # 整数 1–1000000
 
 具体规则：
 
-1. 顶层只允许 `portfolio`、`contribution`、`policy`、`quotes`、`fx`、`fees`、`holdings`、`targets`、`bands`、`classes`、`assets` 十一个表；其他键报 `unknown_field`。
+1. 顶层只允许 `portfolio`、`contribution`、`policy`、`quotes`、`fx`、`fees`、`holdings`、`targets`、`bands`、`classes`、`assets` 十一个表；其他键报 `unknown_field`。**每个表的内部同样只允许本文列出的键**，多出来的键（拼写错误）一律报 `unknown_field`，错误路径写到二级，例如 `quotes.providerr`。
 2. `targets` 的键必须匹配 `[a-z0-9_]{1,40}`，否则 `invalid_class_id`；每个值必须是 0–1 的数字；`|总和 - 1| ≤ 1e-6` 接受，严格大于 1e-6 报 `targets_not_normalized`，错误信息里给出实际总和（保留 6 位小数）。
 3. 每个 `targets` 的键必须在 `classes` 里有 `preferred_symbol`；`preferred_symbol` 必须在 `assets` 里定义。报 `missing_preferred_symbol`。
 4. 每个 `assets.*.class` 必须是 `targets` 的键；报 `unknown_class`。
 5. `assets.*.currency` 必须是三个大写字母；`quote_id` 必须是 `[A-Za-z0-9._-]{1,16}`；`lot_size` 必须是 1–1000000 的整数。
 6. `bands` 的每个值必须在 0.0001–0.5 之间（含端点）；`bands.default` 必填。
-7. `quotes.provider=csv` 时 `price_file` 必填且文件存在；`fx.provider=static` 时 `fx.static` 必须覆盖持仓里出现的所有非本币。
-8. `holdings` 的五个列名不得重复；`symbol_column`、`quantity_column` 不得为空字符串。
+7. `quotes.provider=csv` 时 `price_file` 必填、文件存在且表头包含 `symbol,price,currency,as_of` 四列，否则 `config_invalid`；`fx.provider=static` 时 `fx.static` 必须覆盖持仓里出现的所有非本币，且每个键是三个大写字母。
+7a. `bands` 的键只允许 `default` 与 `targets` 里出现的类别；`classes` 的键同样只允许 `targets` 里的类别，多出来报 `unknown_class`。
+7c. `quotes.provider` 不在 `tencent|csv|mock`、`fx.provider` 不在 `frankfurter|static|mock`、`quotes.retries` 不在 0–5、`quotes.ttl_minutes` 不在 0–10080，报 `config_invalid`，信息里列出允许值或范围。
+7b. `policy.max_orders` 必须是 1–100 的整数；`policy.min_trade_value` 与 `fees.per_order` 必须是 0–1e9 的数字；`contribution.amount` 必须是 0–1e9 的数字。
+8. `holdings` 里非空的列名不得重复（空字符串表示该列不启用，可以重复出现）；`symbol_column`、`quantity_column` 不得为空字符串。
 9. 退出码 2 的错误不写缓存、不写计划文件。
 
 ### 2.4 持仓 CSV
@@ -188,9 +194,13 @@ lot_size = 1                  # 整数 1–1000000
   - `price`（可选列）：> 0 的十进制数字，填写后覆盖行情（视为"用户自报价"，不再请求行情源）；
   - `name`（可选列）：0–80 字符。
 - 同一 `symbol` 出现在多行（不同账户）时合并求和；`currency` 冲突（两行填了不同的）报 `currency_conflict`，错误信息带符号名与两个值。
-- 空行忽略；表头缺列报 `holdings_missing_column`；多余列忽略。
+- 同一 `symbol` 多行都填了 `price` 且数值不同：取第一行的非空值，并在 `warnings` 里写「<符号> 多行价格不一致，取第一行」；不影响退出码。
+- 持仓股数不要求是 `lot_size` 的整数倍（券商可能给出非整手持仓）；卖出时按 `lot_size` 向下取整，买入只按 `lot_size` 的倍数。
+- 空行忽略；多余列忽略。**必需列**（`symbol_column`、`quantity_column`）缺失报 `holdings_missing_column`；**可选列**（`account`/`currency`/`price`/`name` 对应列名非空）在 CSV 里不存在时，视为该列未提供，不报错。
 - 持仓里出现的每个 `symbol` 必须在 `assets` 里定义，否则报 `unknown_symbol`，错误信息里带行号和该符号。
 - `assets` 里定义了但没有持仓的标的：允许，估值按 0 处理。
+- 只有表头、没有数据行：允许，`totalBase = 0`，`status` 输出全 0 与一句 `还没有持仓`；`plan` 按目标比例把现金分配出去。
+- 缓存与 TTL 一律用毫秒时间差判断，不用日期字符串，因此跨时区、跨日不会错判。
 
 ## 3. 数据模型
 
@@ -272,9 +282,9 @@ lot_size = 1                  # 整数 1–1000000
      "value": 300, "valueBase": 2100, "feeBase": 1.5}
   ],
   "skipped": [{"classId": "bond", "reason": "overweight_no_sell"}],
-  "warnings": ["债券超配 14.14pp，本次不卖出，可用 --sell 配平"],
+  "warnings": ["债券超配 14.15pp，本次不卖出，可用 --sell 配平"],
   "before": {"totalBase": 49500, "classes": [{"id": "us_equity", "valueBase": 21000, "targetBase": 27750, "driftBase": -6750, "driftPp": -12.16, "outOfBand": true}]},
-  "after": {"totalBase": 55497, "maxAbsDriftPp": 14.15, "classes": [...], "remainingCash": 297},
+  "after": {"totalBase": 55497, "maxAbsDriftPp": 14.15, "classes": [...]},
   "remainingCash": 297,
   "feesTotal": 3
 }
@@ -287,7 +297,21 @@ lot_size = 1                  # 整数 1–1000000
 同秒内重复生成时追加 `-2`、`-3`（上限 `-9`，超过则等 1 秒）。
 `.rebal/plans/latest.json` 是最近一次计划的副本，`rebal check` 读它。
 
-### 3.7 CheckReport
+### 3.7 Cache（`.rebal/cache.json`）
+
+```json
+{"schemaVersion": 1,
+ "quotes": {"VTI": {"price": 300, "currency": "USD", "fetchedAt": "2026-10-29T21:44:12-04:00", "source": "tencent", "provider": "tencent", "quoteId": "usVTI"}},
+ "fx": {"USD": {"rateToBase": 7, "fetchedAt": "2026-10-29T21:44:12-04:00", "source": "static"}}}
+```
+
+- 命中条件：`provider` 与 `quoteId`（汇率是 `currency` 与 `source`）一致，且 `now - fetchedAt <= ttl_minutes × 60000`。
+- 文件损坏、`schemaVersion` 不是 1、单个条目字段缺失：只丢弃该条目，按未命中处理，不报错（测试 T26）。
+- 写入用临时文件 + `rename` 原子替换；写失败只写一行 `warn` 日志，不影响本次结果。
+
+`after.totalBase` 就是 5.6 的 `afterTotalBase`（含未花完的现金、已扣手续费）。
+
+### 3.8 CheckReport
 
 ```json
 {
@@ -314,10 +338,11 @@ lot_size = 1                  # 整数 1–1000000
 | `reversed` | 方向相反（买入计划下 `actual < 0`，卖出计划下 `actual > 0`） |
 
 `unplanned`：当前持仓相对计划快照的变化里，没有出现在 `orders` 里的符号（比如用户自己手买了别的）。
+计划里的符号在当前持仓里不存在（被改名或清仓）→ `actual = 0`，按上表判为 `pending`；新出现的符号进 `unplanned`。
 
 ## 4. 命令行接口
 
-所有命令都接受 `--config <path>`、`--holdings <path>`、`--state-dir <path>`、`--json`、
+所有命令都接受 `--dir <path>`（在该目录下找 `rebal.toml`、`holdings.csv`，状态目录默认 `<dir>/.rebal`；默认当前目录）、`--config <path>`、`--holdings <path>`、`--state-dir <path>`、`--json`、
 `--offline`、`--color auto|always|never`、`--verbose`、`--quiet`。
 布尔参数只有两种写法：`--flag` 开启、`--no-flag` 关闭；不接受 `--flag=false`、`--flag false`，
 出现时按 `usage`（退出码 2）处理。
@@ -332,11 +357,20 @@ lot_size = 1                  # 整数 1–1000000
 | 3 | 外部依赖失败（`quote_*`、`fx_*`、`network_*`、`timeout`） |
 | 4 | 命令成功执行但没有可执行结果，或 `--strict` 判定失败（`no_actionable_orders`、`strict_failed`） |
 
+全部机器码与退出码（实现时集中放在 `src/errors.js`，测试 T46 逐条断言）：
+
+| 退出码 | 机器码 |
+|---|---|
+| 2 | `usage`、`invalid_input`、`invalid_env`、`config_not_found`、`config_exists`、`config_invalid`、`unknown_field`、`invalid_class_id`、`targets_not_normalized`、`missing_preferred_symbol`、`unknown_class`、`holdings_not_found`、`holdings_too_large`、`holdings_missing_column`、`holdings_invalid`、`unknown_symbol`、`currency_conflict`、`too_many_symbols`、`plan_not_found`、`plan_corrupt`、`state_dir_unwritable`、`mock_fixture_invalid`、`cash_required` |
+| 3 | `quote_not_found`、`quote_invalid`、`quote_http_error`、`quote_rate_limited`、`fx_not_found`、`fx_invalid`、`network_error`、`network_redirect`、`timeout`、`response_too_large` |
+| 4 | `no_actionable_orders`、`strict_failed` |
+| 1 | `internal_error` |
+
 ### 4.2 `rebal init`
 
 创建一个可运行的目录：`rebal.toml`、`holdings.csv`、`prices.csv`（`provider=csv` 时用）。
 
-- 参数：`--dir <path>`（默认当前目录）、`--demo`（写入示例数据并把 `quotes.provider` 设为 `mock`）、`--force`（覆盖已存在文件）。
+- 参数：`--dir <path>`（同全局选项，默认当前目录）、`--demo`（写入示例数据并把 `quotes.provider` 设为 `mock`）、`--force`（覆盖已存在文件）。
 - 行为：目标文件任一已存在且没有 `--force` → 退出码 2，`config_exists`，列出冲突文件。
 - 写出的文件：`rebal.toml`、`holdings.csv`；只有 `quotes.provider=csv` 时才写 `prices.csv`。`--demo` 写 `rebal.toml`（两个 provider 均为 `mock`）与 `holdings.csv`。
 - stdout（成功）：每个创建的文件一行 `已创建 <相对路径>`，最后一行 `下一步：rebal status`。
@@ -347,19 +381,20 @@ lot_size = 1                  # 整数 1–1000000
 
 - 参数：`--strict`（有任一类别越界时退出码 4）。
 - 取值：读配置 → 读持仓 → 取行情与汇率（见第 5 节）→ 汇总。
-- stdout（人类可读）见 5.5；`--json` 输出 `{"schemaVersion":1,"baseCurrency":"CNY","totalBase":49500,"classes":[...],"accounts":[...],"quotes":[{"symbol":"VTI","price":300,"currency":"USD","fetchedAt":"...","stale":false,"source":"tencent"}],"fx":[...],"warnings":[...]}`。
+- stdout（人类可读）见 5.10；`--json` 输出 `{"schemaVersion":1,"baseCurrency":"CNY","totalBase":49500,"classes":[...],"accounts":[...],"quotes":[{"symbol":"VTI","price":300,"currency":"USD","fetchedAt":"...","stale":false,"source":"tencent"}],"fx":[...],"warnings":[...]}`。
+- 持仓为空时，标题下打印一行 `还没有持仓`，表格部分不打印，退出码 0。
 - 失败情况：行情缺失 → 退出码 3 `quote_not_found`，`error` 里列出取不到的符号；汇率缺失 → `fx_not_found`；全部在缓存且 `--offline` 时用缓存并在 `warnings` 里写「使用缓存，截至 …」。
 
 ### 4.4 `rebal plan`
 
 核心命令。
 
-- 参数：`--cash <amount>`（本币，≥0，≤1e9；缺省时用 `contribution.amount`，两者都没有 → 退出码 2 `cash_required`）、`--sell`（本次允许卖出，覆盖 `policy.allow_sell`）、`--no-save`（不写计划文件、不清理旧计划）。
-- 行为：见 5 节算法；成功后写 `.rebal/plans/<planId>.json` 与 `latest.json`，并按 5.8 清理旧计划。
-- stdout：订单表格 + 合计 + 执行后偏离 + 计划文件路径（见 5.6）。
+- 参数：`--cash <amount>`（本币，≥0，≤1e9；缺省时用 `contribution.amount`，两者都没有 → 退出码 2 `cash_required`）、`--sell` / `--no-sell`（本次允许或禁止卖出，覆盖 `policy.allow_sell`；`--no-sell` 用于配置里默认允许卖出的情况）、`--no-save`（不写计划文件、不清理旧计划）。
+- 行为：见第 5 节算法；成功后写 `.rebal/plans/<planId>.json` 与 `latest.json`，并按 5.9 清理旧计划。
+- stdout：订单表格 + 合计 + 执行后偏离 + 计划文件路径（见 5.11）。
 - `--json`：输出 Plan 对象（3.6）。
 - 退出码：有 ≥1 笔订单 → 0，并按 5.9 写计划文件；0 笔订单（现金太少、已达目标、只有越界但禁止卖出且无法用现金补）→ 4 `no_actionable_orders`，**不写计划文件**，但 `--json` 仍输出完整 Plan（`orders: []`）。
-- 失败情况：见第 6 节表格。
+- 失败情况：见第 6 节风险表与 4.1 退出码；行情缺失 `quote_not_found`(3)、汇率缺失 `fx_not_found`(3)、现金参数非法 `invalid_input`(2)、配置错误(2)。
 
 ### 4.5 `rebal check`
 
@@ -373,6 +408,15 @@ lot_size = 1                  # 整数 1–1000000
 
 - 参数：`--refresh`（忽略 TTL 重新取）、`--offline`、`--json`。
 - 行为：打印当前会使用的行情与汇率（含来源、获取时间、是否过期），不写计划。
+- stdout：
+
+```
+代码    价格        货币   来源       获取时间              状态
+VTI     $300.00     USD    腾讯行情   2026-10-29 21:44      新
+日期    汇率(→CNY)  来源    获取时间              状态
+USD     7.0000     静态    2026-10-29 00:00      新
+```
+  状态词固定两个：`新`（TTL 内）、`缓存`（超过 TTL 或 `--offline`）；取不到的符号不打印，直接报错。
 - 失败情况同 `status`。`--refresh` 与 `--offline` 同时给出 → 退出码 2 `invalid_input`（互相矛盾）。
 
 ### 4.7 `rebal version` / `rebal help [command]`
@@ -508,10 +552,10 @@ lot_size = 1                  # 整数 1–1000000
 我的组合 · 本币 CNY · 总市值 ¥49,500.00
 行情 2026-10-29 21:44（腾讯行情）· 汇率 2026-10-29（Frankfurter）
 
-资产类别      目标     当前     偏离      带宽     状态
-美股         50.0%   42.4%    -7.6pp   3.0pp    越界
-A股          20.0%    8.1%   -11.9pp   3.0pp    越界
-债券         30.0%   49.5%   +19.5pp   3.0pp    越界
+资产类别   目标    当前    偏离      带宽   状态
+美股       50.0%  42.4%   -7.6pp   3.0pp  越界
+A股        20.0%   8.1%  -11.9pp   3.0pp  越界
+债券       30.0%  49.5%  +19.5pp   3.0pp  越界
 
 账户         市值(CNY)   占比
 ibkr       45,500.00    91.9%
@@ -522,14 +566,14 @@ futu        4,000.00     8.1%
 
 百分比保留 1 位小数；偏离用带符号的 `pp`；`状态` 用 `越界`/`正常` 两词。
 
-### 5.11 人类可读输出（`plan`）
+### 5.11 人类可读输出（`plan`，按 100 列终端）
 
 ```
 本次投入 ¥6,000.00（不卖出，只买）
 
-方向  代码      类别        股数      价格       金额(CNY)   手续费
-买入  510300   A股          900     ¥4.00      3,600.00     1.50
-买入  VTI      美股           1   $300.00      2,100.00     1.50
+方向  代码    名称                       类别     股数     价格      金额(CNY)  手续费
+买入  510300  沪深300ETF                 A股       900    ¥4.00     3,600.00    1.50
+买入  VTI     Vanguard Total Stock ETF   美股        1  $300.00     2,100.00    1.50
 
 合计 2 笔 · 买入 ¥5,700.00 · 手续费 ¥3.00 · 剩余现金 ¥297.00
 执行后  美股 -8.38pp · A股 -6.31pp · 债券 +14.15pp
@@ -585,7 +629,7 @@ futu        4,000.00     8.1%
 ## 9. 测试要求
 
 全部用例在 `node:test` 下跑，用临时目录、mock provider、假 HTTP 服务器和注入时钟；**不联网**。
-连续跑 3 遍必须全绿。用例共 48 条，编号即测试名的一部分（`test/…` 里写成 `T12 …`）。
+连续跑 3 遍必须全绿。用例共 49 条，编号即测试名的一部分（`test/…` 里写成 `T12 …`）。
 
 **F1 配置（T1–T8）**
 - T1 合法配置能加载，`targets` 总和 0.999999 也接受。
@@ -634,7 +678,7 @@ futu        4,000.00     8.1%
 - T34 算例 (b) `--sell` 逐字段复现 5.8。
 - T35 现金太少（¥50，最小一手 ¥400）→ 0 笔订单，退出码 4 `no_actionable_orders`，`--json` 仍输出 `orders: []` 与 `warnings` 含 `lot_too_expensive`。
 - T36 已经配平（偏离都在带内、cash=0）→ 0 笔订单，退出码 4。
-- T37 `max_orders=1` 时只生成 1 笔，`warnings` 含 `max_orders_reached`；另外订单数上限不会被手续费绕开。
+- T37 `max_orders=1` 时只生成 1 笔订单（卖单与买单合计 ≤ 1），`skipped` 含 `max_orders_reached`；手续费按订单收一次，不会因为手续费被重复计入而少买一手（断言 `budget` 余额与手算一致）。
 - T38 `min_trade_value=5000` 时小额买单被过滤（`sell_below_min_trade` / 买入跳过），不会生成低于阈值的订单。
 - T39 首选符号持仓为 0 但类别超配（`allowSell`）→ `sell_no_holdings`，不产生负持仓。
 - T40 金额四舍五入：`0.005` 进位到 `0.01`；订单金额与手续费合计不超过"现金 + 卖出所得"（逐笔断言）。
@@ -652,6 +696,9 @@ futu        4,000.00     8.1%
 
 **F9 并发与重启（T48）**
 - T48 同一秒内连续两次 `plan` → 第二个 `planId` 加 `-2`，两份文件都在，`latest.json` 指向后者；再用 CLI 子进程跑 `status` 生成缓存、第二个子进程跑 `status --offline` → 命中缓存、零网络请求（进程重启后的状态可用）。
+
+**F10 边界输入（T49）**
+- T49 只有表头的持仓 CSV：`status` 退出码 0、总市值 0、输出 `还没有持仓`；`plan --cash 3000` 按目标比例生成买单（首选符号一手买得起就买），不报错。
 
 **补充要求**
 - 每个用例自己建临时目录（`mkdtemp`），结束后删除；不允许写用户的真实 `~/.rebal`。

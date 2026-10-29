@@ -176,11 +176,11 @@ lot_size = 1                  # 整数 1–1000000
 5. `assets.*.currency` 必须是三个大写字母；`quote_id` 必须是 `[A-Za-z0-9._-]{1,16}`；`lot_size` 必须是 1–1000000 的整数。
 6. `bands` 的每个值必须在 0.0001–0.5 之间（含端点）；`bands.default` 必填。
 7. `quotes.provider=csv` 时 `price_file` 必填、文件存在且表头包含 `symbol,price,currency,as_of` 四列，否则 `config_invalid`；`fx.provider=static` 时 `fx.static` 必须覆盖持仓里出现的所有非本币，且每个键是三个大写字母。
-7a. `bands` 的键只允许 `default` 与 `targets` 里出现的类别；`classes` 的键同样只允许 `targets` 里的类别，多出来报 `unknown_class`。
-7c. `quotes.provider` 不在 `tencent|csv|mock`、`fx.provider` 不在 `frankfurter|static|mock`、`quotes.retries` 不在 0–5、`quotes.ttl_minutes` 不在 0–10080，报 `config_invalid`，信息里列出允许值或范围。
-7b. `policy.max_orders` 必须是 1–100 的整数；`policy.min_trade_value` 与 `fees.per_order` 必须是 0–1e9 的数字；`contribution.amount` 必须是 0–1e9 的数字。
-8. `holdings` 里非空的列名不得重复（空字符串表示该列不启用，可以重复出现）；`symbol_column`、`quantity_column` 不得为空字符串。
-9. 退出码 2 的错误不写缓存、不写计划文件。
+8. `bands` 的键只允许 `default` 与 `targets` 里出现的类别；`classes` 的键同样只允许 `targets` 里的类别，多出来报 `unknown_class`。
+9. `quotes.provider` 不在 `tencent|csv|mock`、`fx.provider` 不在 `frankfurter|static|mock`、`quotes.retries` 不在 0–5、`quotes.ttl_minutes` 不在 0–10080，报 `config_invalid`，信息里列出允许值或范围。
+10. `policy.max_orders` 必须是 1–100 的整数；`policy.min_trade_value` 与 `fees.per_order` 必须是 0–1e9 的数字；`contribution.amount` 必须是 0–1e9 的数字。
+11. `holdings` 里非空的列名不得重复（空字符串表示该列不启用，可以重复出现）；`symbol_column`、`quantity_column` 不得为空字符串。
+12. 退出码 2 的错误不写缓存、不写计划文件；有问题的字段全部列完后一次退出，不进入下一步。
 
 ### 2.4 持仓 CSV
 

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "fetchedAt": "2026-01-01T00:00:00+00:00",
+  "note": "内置示例行情。真实价格会被时间淘汰，示例数据只用于 init --demo 与离线演示。",
+  "quotes": {
+    "usVTI": { "price": 300.0, "currency": "USD", "name": "Vanguard Total Stock Market ETF" },
+    "usVXUS": { "price": 65.0, "currency": "USD", "name": "Vanguard Total International Stock ETF" },
+    "usBND": { "price": 70.0, "currency": "USD", "name": "Vanguard Total Bond Market ETF" },
+    "sh510300": { "price": 4.0, "currency": "CNY", "name": "沪深300ETF" },
+    "sh510500": { "price": 6.5, "currency": "CNY", "name": "中证500ETF" },
+    "hk02800": { "price": 20.0, "currency": "HKD", "name": "盈富基金" }
+  }
+}

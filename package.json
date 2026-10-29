@@ -1,0 +1,42 @@
+{
+  "name": "rebal",
+  "version": "0.1.0",
+  "description": "跨账户、多币种的定投与再平衡下单清单",
+  "type": "module",
+  "bin": {
+    "rebal": "bin/rebal.js"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "files": [
+    "bin",
+    "src",
+    "fixtures",
+    "docs",
+    "README.md",
+    "README_EN.md",
+    "LICENSE",
+    "rebal.toml",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:watch": "node --test --watch test/*.test.js"
+  },
+  "dependencies": {
+    "csv-parse": "7.0.3",
+    "smol-toml": "1.9.1"
+  },
+  "license": "MIT",
+  "keywords": [
+    "rebalancing",
+    "portfolio",
+    "dca",
+    "etf",
+    "cli",
+    "投资",
+    "再平衡"
+  ],
+  "private": false
+}

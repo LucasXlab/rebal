@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "fetchedAt": "2026-01-01T00:00:00+00:00",
+  "base": "CNY",
+  "note": "内置示例汇率（1 单位外币 = 多少 CNY）。只用于 init --demo 与离线演示。",
+  "rates": {
+    "USD": 7.0,
+    "HKD": 0.9,
+    "EUR": 7.6,
+    "JPY": 0.047
+  }
+}

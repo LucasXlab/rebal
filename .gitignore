@@ -1,0 +1,13 @@
+# 依赖
+node_modules/
+
+# 参照仓库（只读，不提交）
+reference/
+
+# 本地配置与数据
+.env
+data/
+
+# 系统文件
+.DS_Store
+*.log

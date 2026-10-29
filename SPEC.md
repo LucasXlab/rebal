@@ -288,11 +288,15 @@ lot_size = 1                  # 整数 1–1000000
      "value": 300, "valueBase": 2100, "feeBase": 1.5}
   ],
   "skipped": [
-    {"classId": "bond", "reason": "overweight_no_sell"},
     {"classId": "us_equity", "reason": "lot_too_expensive"},
-    {"classId": "cn_equity", "reason": "lot_too_expensive"}
+    {"classId": "cn_equity", "reason": "lot_too_expensive"},
+    {"classId": "bond", "reason": "overweight_no_sell"}
   ],
-  "warnings": ["债券超配 14.15pp，本次不卖出，可用 --sell 配平"],
+  "warnings": [
+    "us_equity 还差 8.4pp，但一手 1 股约 ¥2,100.00，现金只剩 ¥297.00，买不起",
+    "cn_equity 还差 6.3pp，但一手 100 股约 ¥400.00，现金只剩 ¥297.00，买不起",
+    "bond 超配 14.1pp，本次不卖出；加 --sell 可以配平"
+  ],
   "before": {"totalBase": 49500, "classes": [{"id": "us_equity", "valueBase": 21000, "targetBase": 27750, "driftBase": -6750, "driftPp": -12.16, "outOfBand": true}]},
   "after": {"totalBase": 55497, "maxAbsDriftPp": 14.15, "classes": [...]},
   "remainingCash": 297,
@@ -582,7 +586,7 @@ USD     7.0000     静态    2026-10-29 00:00      新
 **（a）默认不卖出**：订单 **BUY 510300 × 900（¥3600）、BUY VTI × 1（¥2100）**，手续费 ¥3.00，
 剩余现金 ¥297.00，`afterTotalBase = 49500 + 6000 - 3 = 55497`，
 执行后偏离 `us -8.38pp / cn -6.31pp / bond +14.15pp`（`maxAbsDriftPp = 14.15`），三类仍越界，
-`skipped` 三条：`bond/overweight_no_sell`、`us_equity/lot_too_expensive`、`cn_equity/lot_too_expensive`
+`skipped` 三条（顺序按 `[targets]` 里的类别顺序）：`us_equity/lot_too_expensive`、`cn_equity/lot_too_expensive`、`bond/overweight_no_sell`
 （余额 297 连一手 510300 的 400 都买不起）。退出码 **0**（有订单）。
 
 **（b）`--sell`**：订单 **SELL BND × 16（¥7840）、BUY 510300 × 1800（¥7200）、BUY VTI × 3（¥6300）**，

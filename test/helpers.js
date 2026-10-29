@@ -107,6 +107,7 @@ quote_id = "usVTI"
 class = "cn_equity"
 name = "沪深300ETF"
 currency = "CNY"
+quote_id = "sh510300"
 lot_size = 100
 
 [assets.BND]
@@ -126,7 +127,7 @@ BND,50,ibkr,,,
 
 /**
  * 造一个只在 127.0.0.1 上监听的假 HTTP 服务器。
- * @param {(req: http.IncomingMessage, index: number) => {status?: number, body?: string, headers?: Record<string,string>}} handler
+ * @param {(req: http.IncomingMessage, index: number) => ({status?: number, body?: string, headers?: Record<string,string>} | {hang: true})} handler
  * @returns {Promise<{url: string, requests: {path: string, headers: http.IncomingHttpHeaders}[], close: () => Promise<void>}>}
  */
 export async function fakeServer(handler) {
@@ -136,6 +137,7 @@ export async function fakeServer(handler) {
     const index = requests.length;
     requests.push({ path: req.url ?? '', headers: req.headers });
     const result = handler(req, index);
+    if (result && result.hang) return; // 永不响应（测超时用）
     res.writeHead(result.status ?? 200, { 'content-type': 'text/plain; charset=utf-8', ...(result.headers ?? {}) });
     res.end(result.body ?? '');
   });
@@ -213,3 +215,62 @@ export function writeMockFixtures(dir, data = {}) {
 
 /** 干净的 env（不继承真实环境变量）。 */
 export const CLEAN_ENV = Object.freeze({});
+
+/**
+ * 在临时目录里铺好一个可运行的项目（配置 + 持仓 + mock 数据），返回 run 用的一整套东西。
+ * @param {import('node:test').TestContext} t
+ * @param {{toml?: string, holdings?: string, extraFiles?: Record<string,string>, mock?: {quotes?: unknown, fx?: unknown}, env?: Record<string,string>}} [options]
+ */
+export function makeProject(t, options = {}) {
+  const dir = makeTempDir(t);
+  writeFile(dir, 'rebal.toml', options.toml ?? validToml());
+  writeFile(dir, 'holdings.csv', options.holdings ?? HOLDINGS_CSV);
+  for (const [name, content] of Object.entries(options.extraFiles ?? {})) {
+    writeFile(dir, name, content);
+  }
+  const mockEnv = writeMockFixtures(dir, options.mock);
+  const clock = makeClock();
+  const waits = makeSleep();
+  const captured = { stdout: '', stderr: '' };
+  return {
+    dir,
+    clock,
+    waits,
+    captured,
+    env: { ...CLEAN_ENV, ...mockEnv, ...(options.env ?? {}) },
+    /** @type {typeof fetch|undefined} */
+    fetchImpl: undefined,
+  };
+}
+
+/**
+ * 跑一次 CLI，收集输出。
+ * @param {string[]} argv
+ * @param {object} project makeProject 的返回值
+ * @param {{fetch?: typeof fetch, columns?: number, color?: 'never'|'always'|'auto', isTty?: boolean, now?: () => number, env?: Record<string,string>}} [overrides]
+ * @returns {Promise<{code: number, stdout: string, stderr: string}>}
+ */
+export async function runCli(argv, project, overrides = {}) {
+  const { run } = await import('../src/cli.js');
+  let stdout = '';
+  let stderr = '';
+  const code = await run(argv, {
+    cwd: project.dir,
+    env: { ...project.env, ...(overrides.env ?? {}) },
+    now: overrides.now ?? project.clock.now,
+    sleep: project.waits.sleep,
+    fetch: overrides.fetch ?? project.fetchImpl ?? (() => {
+      throw new Error('测试里不该发请求');
+    }),
+    stdout: (text) => {
+      stdout += text;
+    },
+    stderr: (text) => {
+      stderr += text;
+    },
+    isTty: overrides.isTty ?? false,
+    columns: overrides.columns,
+    colorMode: overrides.color ?? 'never',
+  });
+  return { code, stdout, stderr };
+}

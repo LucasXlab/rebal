@@ -17,7 +17,8 @@ import { isCurrencyCode, isSymbolCode, parseAmount } from './util.js';
 export const PACKAGE_ROOT = path.resolve(import.meta.dirname, '..');
 
 export const DEFAULT_QUOTE_URL = 'https://qt.gtimg.cn/q=';
-export const DEFAULT_FX_URL = 'https://api.frankfurter.app';
+// 2026-10-29 实测：api.frankfurter.app 会 301 到 .dev/v1（我们不跟随重定向），所以直接用新地址
+export const DEFAULT_FX_URL = 'https://api.frankfurter.dev/v1';
 export const DEFAULT_QUOTE_PROVIDERS = ['tencent', 'csv', 'mock'];
 export const DEFAULT_FX_PROVIDERS = ['frankfurter', 'static', 'mock'];
 export const LOG_LEVELS = ['error', 'warn', 'info', 'debug'];

@@ -37,12 +37,15 @@ API key。下面每条都写清"核实方式、核实日期、请求、返回、
   「使用前须知」写明"行情来自腾讯财经的公开接口，可能延迟、可能取不到，取不到时工具会
   直接报错而不是猜一个价格"，并给出 `provider=csv` 的自报价方案。
 
-## 2. Frankfurter `https://api.frankfurter.app/latest`
+## 2. Frankfurter `https://api.frankfurter.dev/v1/latest`
 
 - **官方文档**：<https://www.frankfurter.app/docs/>（2026-10-29 访问，HTTP 200）。
 - **核实方式**：2026-10-29 用 curl 实测三次（正常、本币为 CNY、货币不存在），并核对返回值
   与 ECB 参考汇率的方向。
-- **请求**：`GET https://api.frankfurter.app/latest?from=CNY&to=USD,HKD`。无鉴权。
+- **注意域名变更**：`api.frankfurter.app` 现在返回 **301** 跳转到 `api.frankfurter.dev/v1/latest`。
+  本工具**不跟随重定向**（跟随会把"接口搬家"变成静默的错误数据），所以默认地址直接用新的。
+  如果你自己部署了旧代理，看到 `network_redirect` 就是这个原因。
+- **请求**：`GET https://api.frankfurter.dev/v1/latest?from=CNY&to=USD,HKD`。无鉴权。
 - **返回**（实测，2026-10-29）：
 
   ```json
@@ -83,8 +86,8 @@ API key。下面每条都写清"核实方式、核实日期、请求、返回、
 curl -s 'https://qt.gtimg.cn/q=usAAPL' | iconv -f gbk -t utf-8 | cut -c1-120
 
 # 2. 汇率（应看到 base/date/rates 三个键）
-curl -s 'https://api.frankfurter.app/latest?from=CNY&to=USD'
+curl -s 'https://api.frankfurter.dev/v1/latest?from=CNY&to=USD'
 
 # 3. 不存在的货币（应为 404 与 {"message":"not found"}）
-curl -s -o /dev/null -w '%{http_code}\n' 'https://api.frankfurter.app/latest?from=CNY&to=XXX'
+curl -s -o /dev/null -w '%{http_code}\n' 'https://api.frankfurter.dev/v1/latest?from=CNY&to=XXX'
 ```

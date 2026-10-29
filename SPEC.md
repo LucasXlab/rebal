@@ -89,7 +89,7 @@ rebal/
 | `REBAL_CACHE_TTL_MINUTES` | 取配置 `quotes.ttl_minutes` | 否 | 不是 0–10080 的整数 → 退出码 2，`invalid_env` |
 | `REBAL_LOG_LEVEL` | `warn` | 否 | 不在 `error|warn|info|debug` → 退出码 2，`invalid_env` |
 | `REBAL_QUOTE_URL` | `https://qt.gtimg.cn/q=` | 否 | 不是 `https://` 或 `http://127.0.0.1` 开头的 URL → 退出码 2，`invalid_env` |
-| `REBAL_FX_URL` | `https://api.frankfurter.app` | 否 | 同上 |
+| `REBAL_FX_URL` | `https://api.frankfurter.dev/v1` | 否 | 同上 |
 | `REBAL_MOCK_QUOTES_FILE` | `<包目录>/fixtures/quotes.mock.json` | 否 | 不存在或 JSON 不合法 → 退出码 2，`mock_fixture_invalid` |
 | `REBAL_MOCK_FX_FILE` | `<包目录>/fixtures/fx.mock.json` | 否 | 同上 |
 | `NO_COLOR` | 未设置 | 否 | 只要存在（任意值）就不输出 ANSI 颜色 |

@@ -16,7 +16,15 @@ import { buildPlan, comparePlan, loadPlan, nextPlanId, savePlan } from './plan.j
 import { layoutFor, makeColor, renderTable } from './format/table.js';
 import { renderPrices, renderStatus } from './format/status.js';
 import { sourceLabel } from './format/status.js';
-import { formatDrift, formatMoney, formatPrice, roundHalfUp, truncateWidth } from './util.js';
+import {
+  formatDrift,
+  formatLocalDateTime,
+  formatMoney,
+  formatPrice,
+  groupInteger,
+  roundHalfUp,
+  truncateWidth,
+} from './util.js';
 import { DEMO_HOLDINGS, DEMO_TOML, TEMPLATE_HOLDINGS, TEMPLATE_TOML } from './templates.js';
 import { appendErrorLog } from './error-log.js';
 import { TOOL_VERSION } from './version.js';
@@ -180,6 +188,81 @@ export async function run(argv, overrides = {}) {
 /**
  * @param {string[]} argv
  */
+/**
+ * 把 `node:util` parseArgs 的英文报错翻成"中文 + 正确写法"。
+ * 这是新人最常撞的一类错（`plan 6000`、`--cas`、`help plan`），英文报错会让人以为工具没做完。
+ * @param {unknown} err
+ * @param {string} command
+ * @returns {RebalError}
+ */
+function translateParseArgsError(err, command) {
+  const raw = err instanceof Error ? err.message : String(err);
+  const usage = { path: '命令行', message: `运行 rebal help 看用法` };
+  const unexpectedArg = /^Unexpected argument '(.+?)'/.exec(raw);
+  if (unexpectedArg) {
+    const arg = unexpectedArg[1];
+    // 位置参数误用：多给了个值
+    const hint =
+      command === 'plan'
+        ? `金额要用 --cash 传：rebal plan --cash ${arg}`
+        : `请改用参数：rebal help ${command} 看这个命令支持哪些参数`;
+    return new RebalError('usage', `多了一个参数：${arg}`, {
+      issues: [{ path: arg, message: hint }],
+    });
+  }
+  const unknownOption = /^Unknown option '(.+?)'/.exec(raw);
+  if (unknownOption) {
+    const option = unknownOption[1];
+    const suggestion = suggestOption(option);
+    return new RebalError(
+      'usage',
+      `没有 ${option} 这个参数${suggestion ? `，你是不是想写 --${suggestion}？` : ''}`,
+      { issues: [] },
+    );
+  }
+  return new RebalError('usage', `命令行参数不认识：${raw}`, { issues: [usage] });
+}
+
+/**
+ * 为拼错的参数找最接近的写法（编辑距离 ≤ 2 视为拼写错误）。
+ * @param {string} option
+ * @returns {string|null}
+ */
+function suggestOption(option) {
+  const known = Object.keys({ ...GLOBAL_OPTIONS, ...(COMMAND_OPTIONS.plan ?? {}) });
+  const bare = option.replace(/^-+/, '');
+  let best = null;
+  let bestDistance = 3;
+  for (const candidate of known) {
+    const d = editDistance(bare, candidate.replace(/^-+/, ''));
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/**
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function editDistance(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+  }
+  return dp[a.length][b.length];
+}
+
 function parseCommandLine(argv) {
   const positionals = argv.filter((arg) => !arg.startsWith('-'));
   const command = positionals[0] ?? 'help';
@@ -204,9 +287,9 @@ function parseCommandLine(argv) {
       strict: true,
     });
   } catch (err) {
-    throw new RebalError('usage', err instanceof Error ? err.message : String(err), {
-      issues: [{ path: '命令行', message: '运行 rebal help 看用法' }],
-    });
+    // parseArgs 的报错是英文原文（"Unexpected argument '6000'."），不能直接甩给用户。
+    // 把这几种最高频的误用翻成中文并给出正确写法。
+    throw translateParseArgsError(err, command);
   }
   return { command, values: parsed.values, positionals: positionals.slice(1) };
 }
@@ -366,6 +449,7 @@ async function commandPlan(ctx) {
   const allocation = allocate({
     classes: Object.entries(loaded.config.targets).map(([classId, targetWeight]) => ({
       classId,
+      label: loaded.config.classes[classId]?.name ?? classId,
       targetWeight,
       band: loaded.config.bands.byClass[classId] ?? loaded.config.bands.default,
       preferredSymbol: loaded.config.classes[classId]?.preferredSymbol ?? null,
@@ -515,6 +599,21 @@ function resolveStateDirHint(app, argv) {
 /**
  * @param {{app: App, columns?: number}} ctx
  */
+/**
+ * 终端宽度：`COLUMNS` 环境变量 > `process.stdout.columns` > 100。
+ * 少了这一步，DESIGN 里的宽度降级在真实终端永远不会触发。
+ * @param {App} app
+ * @returns {number}
+ */
+export function detectColumns(app) {
+  if (Number.isFinite(app.columns) && app.columns > 0) return app.columns;
+  const fromEnv = Number(app.env?.COLUMNS);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
+  const fromStdout = Number(process.stdout.columns);
+  if (Number.isFinite(fromStdout) && fromStdout > 0) return fromStdout;
+  return 100;
+}
+
 function renderOptions(ctx) {
   const enabled =
     ctx.app.colorMode === 'always'
@@ -524,8 +623,7 @@ function renderOptions(ctx) {
         : ctx.app.noColor
           ? false
           : ctx.app.isTty;
-  const columns = ctx.app.columns ?? (ctx.app.isTty ? undefined : 100);
-  return { layout: layoutFor(columns), color: makeColor(enabled) };
+  return { layout: layoutFor(detectColumns(ctx.app)), color: makeColor(enabled) };
 }
 
 /**
@@ -539,7 +637,7 @@ function reportError(app, err, json, argv) {
   if (err.code === 'internal_error' && err.cause instanceof Error) {
     app.stderr(`${err.cause.stack ?? err.cause.message}\n`);
   }
-  // 错误日志：state 目录不可写时退到 tmpdir，并把实际路径说出来
+  // 错误日志：state 目录不可写时退到 tmpdir（提示放在错误块之后，别打断"哪里错了"）
   const stateDir = resolveStateDirHint(app, argv);
   const logged = appendErrorLog({
     stateDir,
@@ -547,20 +645,26 @@ function reportError(app, err, json, argv) {
     stack: err.cause instanceof Error ? err.cause.stack : undefined,
     tmpDir: app.tmpDir,
   });
-  if (logged.fellBack) {
-    app.stderr(`（错误日志写到 ${logged.file}：${stateDir ?? 'state 目录'}不可写）\n`);
-  }
 
   if (json) {
     app.stdout(`${JSON.stringify(err.toJSON(), null, 2)}\n`);
   } else {
     app.stderr(`rebal: error: ${err.message} [${err.code}]\n`);
-    for (const issue of err.issues.slice(0, 6)) {
+    // 第一行已经是完整句子时，加了路径前缀再重复一遍没有信息量
+    const bareMessage = err.message.replace(/\s*\[[a-z0-9_]+\]\s*$/, '').trim();
+    const shown = err.issues.filter((issue) => {
+      if (issue.message === err.message) return false;
+      return !(bareMessage.length > 8 && issue.message.includes(bareMessage));
+    });
+    for (const issue of shown.slice(0, 6)) {
       app.stderr(`  ${issue.path}: ${issue.message}\n`);
     }
-    if (err.issues.length > 6) app.stderr(`  还有 ${err.issues.length - 6} 条\n`);
+    if (shown.length > 6) app.stderr(`  还有 ${shown.length - 6} 条\n`);
     const hint = HINTS[err.code];
     if (hint) app.stderr(`  怎么办：${hint}\n`);
+    if (logged.fellBack) {
+      app.stderr(`  错误日志写到 ${logged.file}（${stateDir ?? '状态目录'} 不可写）\n`);
+    }
   }
   return err.exitCode;
 }
@@ -569,7 +673,16 @@ const HINTS = {
   usage: '运行 rebal help 看用法',
   config_not_found: '运行 rebal init 生成一份配置，或用 --config 指定路径',
   config_exists: '加 --force 覆盖，或换一个 --dir',
-  config_invalid: '按提示改 rebal.toml；字段名与取值范围见 SPEC.md 第 2 节',
+  config_invalid: '按提示改 rebal.toml；字段名与取值范围见 README 的"配置"一节',
+  targets_not_normalized: '把 [targets] 里的数字按同一比例缩放，使总和正好等于 1（例如 0.5 / 0.2 / 0.3）',
+  invalid_class_id: '类别名只能用小写字母、数字与下划线，例如 us_equity',
+  missing_preferred_symbol: '给权重非 0 的每个类别写 [classes.类别] 的 preferred_symbol',
+  unknown_class: '把 [classes] 或 [bands] 里的类别名改成 [targets] 里已有的键',
+  holdings_invalid: '数量必须是不小于 0 的数字（不能为负），代码列不能为空',
+  holdings_too_large: '把持仓拆成多个文件，或删掉已经清仓的行',
+  invalid_input: '按提示给出合法取值（金额是数字，例如 6000）',
+  quote_invalid: '检查 quote_id 的前缀（us/sh/sz/hk）与 currency 是否写混了',
+  fx_static_missing: '在 [fx.static] 里补齐缺少的货币汇率',
   unknown_field: '删掉拼错的配置项',
   invalid_env: '改掉这个环境变量，或 unset 它',
   holdings_not_found: '检查配置里的 holdings.path（CSV 至少要有 symbol 与 quantity 两列）',
@@ -627,20 +740,21 @@ function renderPlan(options) {
         render: (o) => truncateWidth(loaded.config.assets[o.symbol]?.name ?? '', 22),
         onlyIn: ['full'],
       },
-      { key: 'class', title: '类别', align: 'left', render: (o) => o.classId },
-      { key: 'quantity', title: '股数', align: 'right', render: (o) => String(o.quantity) },
+      { key: 'class', title: '类别', align: 'left', render: (o) => o.classLabel ?? o.classId },
+      { key: 'quantity', title: '股数', align: 'right', render: (o) => formatQuantity(o.quantity) },
       { key: 'price', title: '价格', align: 'right', render: (o) => formatPrice(o.unitPrice, o.currency) },
       {
+        // 下单要照着"券商里的币种金额"敲，所以两边都给：$7,851.80（本币 ¥52,306.97）
         key: 'value',
-        title: `金额(${baseCurrency})`,
+        title: '金额',
         align: 'right',
-        render: (o) => moneyBare(o.valueBase, baseCurrency),
+        render: (o) => orderAmount(o, baseCurrency),
       },
       {
         key: 'fee',
         title: '手续费',
         align: 'right',
-        render: (o) => moneyBare(o.feeBase, baseCurrency),
+        render: (o) => formatMoney(o.feeBase, baseCurrency),
         onlyIn: ['full'],
       },
     ];
@@ -686,12 +800,13 @@ function renderPlan(options) {
 function renderCheck(report, render, plan) {
   const { color } = render;
   const STATUS_TEXT = { done: '完成', partial: '部分', pending: '未执行', over: '超量', reversed: '反向' };
-  const lines = [`核对计划 ${plan.planId}（创建于 ${plan.createdAt}）`, ''];
+  const created = plan.createdAt ? formatLocalDateTime(new Date(plan.createdAt)) : '—';
+  const lines = [`核对计划 ${plan.planId}`, `创建于 ${created} · 实际持仓来自 holdings.csv`, ''];
   const columns = [
     { key: 'symbol', title: '代码', align: 'left', render: (r) => r.symbol },
     { key: 'side', title: '方向', align: 'left', render: (r) => (r.side === 'buy' ? '买入' : '卖出') },
-    { key: 'planned', title: '计划', align: 'right', render: (r) => String(r.planned) },
-    { key: 'actual', title: '实际', align: 'right', render: (r) => String(r.actual) },
+    { key: 'planned', title: '计划(股)', align: 'right', render: (r) => formatQuantity(r.planned) },
+    { key: 'actual', title: '实际(股)', align: 'right', render: (r) => formatQuantity(r.actual) },
     { key: 'status', title: '状态', align: 'left', render: (r) => paint(STATUS_TEXT[r.status], color) },
   ];
   lines.push(...renderTable(columns, report.items, { layout: render.layout }));
@@ -702,9 +817,18 @@ function renderCheck(report, render, plan) {
   }
   const s = report.summary;
   lines.push('');
-  lines.push(
-    `完成 ${s.done} · 部分 ${s.partial} · 未执行 ${s.pending} · 超量 ${s.over} · 反向 ${s.reversed} · 计划外 ${s.unplanned}`,
-  );
+  // 只打印非零的计数：六项全打出来时，多数人只看得到五个 0
+  const parts = [
+    [s.done, '完成'],
+    [s.partial, '部分'],
+    [s.pending, '未执行'],
+    [s.over, '超量'],
+    [s.reversed, '反向'],
+    [s.unplanned, '计划外'],
+  ]
+    .filter(([count]) => count > 0)
+    .map(([count, label]) => `${label} ${count}`);
+  lines.push(parts.length > 0 ? parts.join(' · ') : '计划里的订单都已完成');
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
@@ -716,9 +840,17 @@ function paint(status, color) {
   return status;
 }
 
-/** 数字列只要数字与千分位（表头里已经写了货币）。 */
-function moneyBare(value, currency) {
-  return formatMoney(value, currency).replace(/^[^\d-]+/, '');
+/**
+ * 订单金额用标的自己的货币（价格列的符号已经说明币种），
+ * 本币合计在表格下方给——行内塞"本币等值"会把表撑到 94 列。
+ */
+function orderAmount(order) {
+  return formatMoney(order.value, order.currency);
+}
+
+/** 股数：整数 + 千分位（`1,800`）。 */
+function formatQuantity(value) {
+  return groupInteger(String(Math.round(value)));
 }
 
 function round2(value) {

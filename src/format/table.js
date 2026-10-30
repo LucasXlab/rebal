@@ -70,14 +70,19 @@ export function layoutFor(columns) {
  * @returns {string[]} 每一行文本（调用方负责写出去）
  */
 export function renderTable(columns, rows, options) {
-  const visible = columns.filter((c) => !c.onlyIn || c.onlyIn.includes(options.layout));
+  const layoutColumns = columns.filter((c) => !c.onlyIn || c.onlyIn.includes(options.layout));
+  // 整列都是占位符（示例数据没有行情名称）时不显示这一列，避免一整列 "—"
+  const visible = layoutColumns.filter((c) => !(rows.length > 0 && rows.every((row) => String(c.render(row)) === '—')));
   if (options.layout === 'narrow') return renderAsList(visible, rows);
   const cells = rows.map((row) => visible.map((c) => c.render(row)));
   const widths = visible.map((c, i) => Math.max(displayWidth(c.title), ...cells.map((line) => displayWidth(line[i]))));
-  const header = visible.map((c, i) => (c.align === 'right' ? padStartWidth(c.title, widths[i]) : padEndWidth(c.title, widths[i])));
+  const header = visible
+    .map((c, i) => (c.align === 'right' ? padStartWidth(c.title, widths[i]) : padEndWidth(c.title, widths[i])))
+    .join('  ')
+    .replace(/\s+$/, '');
   const totalWidth = widths.reduce((sum, w) => sum + w, 0) + 2 * (widths.length - 1);
   const separator = '─'.repeat(totalWidth);
-  const lines = [header.join('  '), separator];
+  const lines = [header, separator];
   for (const line of cells) {
     lines.push(
       line

@@ -3,10 +3,14 @@
  */
 
 export const TEMPLATE_TOML = `# 配平 rebal 的配置。改完运行 rebal status 看结果。
-# 字段说明：https://github.com/<owner>/rebal/blob/main/docs/features.md
+# 字段说明见 README 的"配置"一节（docs/features.md）。
 [portfolio]
 name = "我的组合"
 base_currency = "CNY"
+
+[contribution]
+# 每月默认投入多少本币；plan 不带 --cash 时用这个数
+amount = 6000
 
 [policy]
 # 卖出必须显式允许：默认只用新钱买，不卖已有持仓（避免意外税务事件）
@@ -47,15 +51,21 @@ bond = 0.3
 [bands]
 default = 0.03
 
+# name 是给人看的类别名（可省略，省略时输出用类别 ID）
 [classes.us_equity]
+name = "美股"
 preferred_symbol = "VTI"
 
 [classes.cn_equity]
+name = "A股"
 preferred_symbol = "510300"
 
 [classes.bond]
+name = "债券"
 preferred_symbol = "BND"
 
+# quote_id 是行情源里的代码，前缀决定市场：us 美股 / sh 沪市 / sz 深市 / hk 港股。
+# 不填则用证券代码本身。
 [assets.VTI]
 class = "us_equity"
 name = "Vanguard Total Stock Market ETF"
@@ -86,6 +96,9 @@ export const DEMO_TOML = `# 示例配置：行情与汇率都用内置示例数�
 [portfolio]
 name = "示例组合"
 base_currency = "CNY"
+
+[contribution]
+amount = 6000
 
 [policy]
 allow_sell = false
@@ -122,14 +135,19 @@ bond = 0.3
 default = 0.03
 
 [classes.us_equity]
+name = "美股"
 preferred_symbol = "VTI"
 
 [classes.cn_equity]
+name = "A股"
 preferred_symbol = "510300"
 
 [classes.bond]
+name = "债券"
 preferred_symbol = "BND"
 
+# quote_id 是行情源里的代码，前缀决定市场：us 美股 / sh 沪市 / sz 深市 / hk 港股。
+# 不填则用证券代码本身。
 [assets.VTI]
 class = "us_equity"
 name = "Vanguard Total Stock Market ETF"

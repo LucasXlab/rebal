@@ -60,6 +60,7 @@ export function allocate(input) {
   };
 
   /** 类别当前市值（本币）。 */
+  const labelOf = (classId) => classes.find((c) => c.classId === classId)?.label ?? classId;
   const classValue = (classId) => {
     let sum = 0;
     for (const [symbol, row] of holdings) {
@@ -163,6 +164,7 @@ export function allocate(input) {
         symbol,
         side: 'sell',
         classId: candidate.classId,
+        classLabel: labelOf(candidate.classId),
         quantity,
         lotSize,
         unitPrice: price,
@@ -239,6 +241,9 @@ export function allocate(input) {
           valueBase: asset.lotSize * price * rate,
           feeBase: feesPerOrder,
         };
+        // 必须 push 同一个对象：后续 existing.quantity += lot 是原地累加的，
+        // 推副本会让 orders 里的股数停在一手，且 orders.indexOf(order) 失效
+        order.classLabel = labelOf(order.classId);
         buyOrders.set(candidate.classId, order);
         orders.push(order);
         hasBuyOrder.add(candidate.classId);
@@ -346,6 +351,7 @@ export function allocate(input) {
     lotCostOf,
     remainingCash,
     baseCurrency,
+    labelOf,
   }));
 
   return {
@@ -362,10 +368,11 @@ export function allocate(input) {
 /**
  * 把一条 skipped 变成人话（DESIGN 的文案要求：说清楚"为什么"和"下一步"）。
  * @param {{classId: string, symbol?: string, reason: string}} skip
- * @param {{classes: any[], afterClasses: any[], minTradeValue: number, maxOrders: number, assets: Record<string, any>}} ctx
+ * @param {{classes: any[], afterClasses: any[], minTradeValue: number, maxOrders: number, assets: Record<string, any>, labelOf: (classId: string) => string}} ctx
  * @returns {string}
  */
 function describeSkip(skip, ctx) {
+  const name = ctx.labelOf(skip.classId);
   const after = ctx.afterClasses.find((c) => c.id === skip.classId);
   const pp = after ? Math.abs(after.driftPp).toFixed(1) : '?';
   const symbol = skip.symbol ?? ctx.classes.find((c) => c.classId === skip.classId)?.preferredSymbol ?? skip.classId;
@@ -375,24 +382,24 @@ function describeSkip(skip, ctx) {
   const cashText = `现金只剩 ${formatMoney(ctx.remainingCash, ctx.baseCurrency)}`;
   switch (skip.reason) {
     case 'overweight_no_sell':
-      return `${skip.classId} 超配 ${pp}pp，本次不卖出；加 --sell 可以配平`;
+      return `${name} 超配 ${pp}pp，本次不卖出；加 --sell 可以配平`;
     case 'lot_too_expensive':
-      return `${skip.classId} 还差 ${pp}pp，但${lotCostText}，${cashText}，买不起`;
+      return `${name} 还差 ${pp}pp，但${lotCostText}，${cashText}，买不起`;
     case 'max_orders_reached':
-      return `订单数到上限 ${ctx.maxOrders}，${skip.classId} 还没配平；加 --cash 分两次买或调大 policy.max_orders`;
+      return `订单数到上限 ${ctx.maxOrders}，${name} 还没配平；加 --cash 分两次买或调大 policy.max_orders`;
     case 'fee_exceeds_cash':
-      return `${skip.classId} 的现金够买一手，但不够付手续费`;
+      return `${name} 的现金够买一手，但不够付手续费`;
     case 'below_min_trade':
-      return `${skip.classId} 的买单不到最小交易额 ${formatMoney(ctx.minTradeValue, ctx.baseCurrency)}，已跳过`;
+      return `${name} 的买单不到最小交易额 ${formatMoney(ctx.minTradeValue, ctx.baseCurrency)}，已跳过`;
     case 'sell_below_min_trade':
-      return `${skip.classId} 要卖的金额不到最小交易额 ${formatMoney(ctx.minTradeValue, ctx.baseCurrency)}，这次不卖`;
+      return `${name} 要卖的金额不到最小交易额 ${formatMoney(ctx.minTradeValue, ctx.baseCurrency)}，这次不卖`;
     case 'sell_no_holdings':
-      return `${skip.classId} 超配，但首选符号没有持仓；检查 classes.${skip.classId}.preferred_symbol`;
+      return `${name} 超配，但首选符号没有持仓；检查 classes.${skip.classId}.preferred_symbol`;
     case 'sell_capped_by_holdings':
-      return `${skip.classId} 的持股不够卖到目标，已把能卖的卖完`;
+      return `${name} 的持股不够卖到目标，已把能卖的卖完`;
     case 'sell_below_fee':
-      return `${skip.classId} 的卖出金额还不够手续费，这次不卖`;
+      return `${name} 的卖出金额还不够手续费，这次不卖`;
     default:
-      return `${skip.classId}: ${skip.reason}`;
+      return `${name}: ${skip.reason}`;
   }
 }

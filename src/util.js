@@ -113,8 +113,10 @@ export function formatSignedPp(pp) {
 
 /** 东半角宽度：CJK 与全角标点算 2，其余算 1。 */
 export function displayWidth(text) {
+  // 先剥掉 ANSI 转义：染色的状态词若被算成 13 列宽，整张表在真终端里会错位
+  const plain = String(text).replace(/\x1b\[[0-9;]*m/g, '');
   let width = 0;
-  for (const ch of String(text)) {
+  for (const ch of plain) {
     const cp = ch.codePointAt(0);
     width += isWide(cp) ? 2 : 1;
   }

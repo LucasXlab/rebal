@@ -54,7 +54,7 @@ export function renderStatus(options) {
       { key: 'band', title: '带宽', align: 'right', render: (r) => `${(r.band * 100).toFixed(1)}pp` },
       { key: 'status', title: '状态', align: 'left', render: (r) => paintStatus(r.outOfBand ? '越界' : '正常', color) },
     ];
-    const rows = classes.map((c) => ({ ...c, label: c.classId }));
+    const rows = classes.map((c) => ({ ...c, label: c.label ?? c.classId }));
     lines.push(...renderTable(columns, rows, { layout: render.layout }));
     lines.push('');
 
@@ -112,9 +112,8 @@ export function renderPrices(options) {
     },
     { key: 'price', title: '价格', align: 'right', render: (r) => formatPrice(r.price, r.currency) },
     { key: 'currency', title: '货币', align: 'left', render: (r) => r.currency },
-    { key: 'source', title: '来源', align: 'left', render: (r) => sourceLabel(r.source, r.provider) },
+    { key: 'source', title: '来源', align: 'left', render: (r) => sourceWithCache(r) },
     { key: 'fetchedAt', title: '获取时间', align: 'left', render: (r) => formatLocalDateTime(new Date(r.fetchedAtMs)) },
-    { key: 'fresh', title: '状态', align: 'left', render: (r) => (r.stale ? '缓存' : '新') },
   ];
   const rows = [...quotes.entries()].map(([symbol, q]) => ({ symbol, ...q }));
   lines.push(...renderTable(quoteColumns, rows, { layout: render.layout }));
@@ -123,15 +122,20 @@ export function renderPrices(options) {
   const fxColumns = [
     { key: 'currency', title: '货币', align: 'left', render: (r) => r.currency },
     { key: 'rate', title: `汇率(→${baseCurrency})`, align: 'right', render: (r) => r.rateToBase.toFixed(4) },
-    { key: 'source', title: '来源', align: 'left', render: (r) => sourceLabel(r.source) },
+    { key: 'source', title: '来源', align: 'left', render: (r) => sourceWithCache(r) },
     { key: 'fetchedAt', title: '获取时间', align: 'left', render: (r) => formatLocalDateTime(new Date(r.fetchedAtMs)) },
-    { key: 'fresh', title: '状态', align: 'left', render: (r) => (r.stale ? '缓存' : '新') },
   ];
   const fxRows = [...fx.entries()]
     .filter(([currency]) => currency !== baseCurrency)
     .map(([currency, f]) => ({ currency, ...f }));
   lines.push(...renderTable(fxColumns, fxRows, { layout: render.layout }));
   return `${lines.join('\n').trimEnd()}\n`;
+}
+
+/** 来源 + 缓存标记：`腾讯行情（缓存）`。只用词表里已有的"缓存"，不新造状态词。 */
+function sourceWithCache(row) {
+  const base = sourceLabel(row.source, row.provider);
+  return row.stale ? `${base}（缓存）` : base;
 }
 
 /**

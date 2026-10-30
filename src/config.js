@@ -379,18 +379,33 @@ export function normalizeConfig(raw, issues, configPath = 'rebal.toml') {
       }
       const entry = /** @type {Record<string, unknown>} */ (value);
       for (const key of Object.keys(entry)) {
-        if (key !== 'preferred_symbol') {
+        if (key !== 'preferred_symbol' && key !== 'name') {
           issues.add('unknown_field', at(`classes.${classId}.${key}`), `未知的配置项 classes.${classId}.${key}`);
+        }
+      }
+      let label = null;
+      if (entry.name !== undefined) {
+        if (typeof entry.name !== 'string' || entry.name.length > 20) {
+          issues.add(
+            'config_invalid',
+            at(`classes.${classId}.name`),
+            `classes.${classId}.name 必须是 0–20 字符的字符串（终端里要放得下）`,
+          );
+        } else if (entry.name.trim() !== '') {
+          label = entry.name.trim();
         }
       }
       if (entry.preferred_symbol !== undefined) {
         if (!isSymbolCode(entry.preferred_symbol)) {
           issues.add('config_invalid', at(`classes.${classId}.preferred_symbol`), 'preferred_symbol 必须是证券代码');
         } else {
-          cfg.classes[classId] = { preferredSymbol: /** @type {string} */ (entry.preferred_symbol).toUpperCase() };
+          cfg.classes[classId] = {
+            preferredSymbol: /** @type {string} */ (entry.preferred_symbol).toUpperCase(),
+            name: label,
+          };
         }
       } else {
-        cfg.classes[classId] = { preferredSymbol: null };
+        cfg.classes[classId] = { preferredSymbol: null, name: label };
       }
     }
   }

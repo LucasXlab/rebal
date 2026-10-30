@@ -2,7 +2,7 @@
 
 Turns "what should I buy with this month's contribution?" into a list of orders you can actually place.
 
-[![tests](https://img.shields.io/badge/tests-61%20passed-brightgreen)](test/)
+[![tests](https://img.shields.io/badge/tests-62%20passed-brightgreen)](test/)
 [![node](https://img.shields.io/badge/node-%E2%89%A520.11-brightgreen)](package.json)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![deps](https://img.shields.io/badge/runtime%20deps-2-blueviolet)](package.json)

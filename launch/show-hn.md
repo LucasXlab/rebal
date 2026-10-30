@@ -32,7 +32,7 @@ Implementation notes, since this is HN:
 
 - Node.js ≥ 20.11, pure ESM, plain JS with JSDoc — no TypeScript build step.
 - Two runtime dependencies (`smol-toml`, `csv-parse`), both pinned.
-- 61 tests via `node:test`. No network in tests (loopback fake servers), no fixed sleeps (injected clock), temp dirs only.
+- 62 tests via `node:test`. No network in tests (loopback fake servers), no fixed sleeps (injected clock), temp dirs only.
 - Terminal output is specced separately from behavior — `DESIGN.md` lists 14 things it deliberately does *not* do (box drawing, emoji, colored headers) and three width breakpoints.
 - Chinese-only UI for now; it is built for people holding A-share and US/HK accounts together. `SPEC.md` and source comments are in English.
 

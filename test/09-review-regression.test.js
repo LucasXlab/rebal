@@ -182,7 +182,7 @@ test('T56 配置与 CSV 里的 ANSI 转义不能进终端（清屏/隐藏文字/
   const ok = makeProject(t);
   const normal = await runCli(['plan', '--cash', '6000', '--no-save'], ok);
   assert.equal(normal.code, 0, normal.stderr);
-  assert.match(normal.stdout, /Vanguard Total Stock Market/);
+  assert.match(normal.stdout, /Vanguard Total Stock/, '正常名称照常显示（超出 22 列会带 … 截断）');
 });
 
 test('T57 stripControl：剥掉清屏/隐藏/OSC，保留换行与制表符', async () => {

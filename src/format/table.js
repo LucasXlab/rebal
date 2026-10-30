@@ -62,6 +62,12 @@ export function layoutFor(columns) {
  * @property {string[]} [onlyIn] 只在某些布局里显示
  */
 
+/** 单元格是不是"空"：空字符串、纯空白、或占位符 —（DESIGN 2.2）。 */
+function isEmptyCell(text) {
+  const value = String(text).trim();
+  return value === '' || value === '—';
+}
+
 /**
  * 渲染表格（含表头与分隔线）。
  * @param {Column[]} columns
@@ -71,8 +77,11 @@ export function layoutFor(columns) {
  */
 export function renderTable(columns, rows, options) {
   const layoutColumns = columns.filter((c) => !c.onlyIn || c.onlyIn.includes(options.layout));
-  // 整列都是占位符（示例数据没有行情名称）时不显示这一列，避免一整列 "—"
-  const visible = layoutColumns.filter((c) => !(rows.length > 0 && rows.every((row) => String(c.render(row)) === '—')));
+  // 整列都是占位符（示例数据没有行情名称）时不显示这一列，避免一整列 "—"。
+  // 空字符串也算占位符：否则"没写 name 的资产"会给出一整列空白（DESIGN 2.2 要求空值显示 —）。
+  const visible = layoutColumns.filter(
+    (c) => !(rows.length > 0 && rows.every((row) => isEmptyCell(c.render(row)))),
+  );
   if (options.layout === 'narrow') return renderAsList(visible, rows);
   const cells = rows.map((row) => visible.map((c) => c.render(row)));
   const widths = visible.map((c, i) => Math.max(displayWidth(c.title), ...cells.map((line) => displayWidth(line[i]))));

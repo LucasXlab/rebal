@@ -111,10 +111,40 @@ export function formatSignedPp(pp) {
   return `${rounded > 0 ? '+' : ''}${rounded.toFixed(1)}`;
 }
 
+/**
+ * 剥掉 ANSI 转义序列与 C0/C1 控制字符。
+ *
+ * 为什么需要：终端会把 `\x1b[2J`（清屏）、`\x1b[8m`（隐藏文字）当成指令执行。
+ * 配置或 holdings.csv 一旦来自不可信来源（同事发的、从网页复制的），
+ * 这些字节就能清空屏幕、隐藏真实数字、把表格挤歪。显示层一律先剥掉。
+ * 换行与制表符保留（调用方自己决定要不要折行）。
+ * @param {string} text
+ * @returns {string}
+ */
+export function stripControl(text) {
+  return String(text)
+    // CSI（`ESC [ ... 字母`）与 OSC（`ESC ] ... BEL/ST`）
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    // 其他两字符转义（ESC + 单字符）
+    .replace(/\x1b[@-Z\\-_]/g, '')
+    // C0（除 \n \t）与 DEL、C1
+    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
+}
+
+/**
+ * 是否含控制字符（含 ESC）。用于在入口拒绝，而不是显示时才修。
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function hasControlChar(text) {
+  return /[\x00-\x08\x0a-\x1f\x7f-\x9f]/.test(String(text));
+}
+
 /** 东半角宽度：CJK 与全角标点算 2，其余算 1。 */
 export function displayWidth(text) {
   // 先剥掉 ANSI 转义：染色的状态词若被算成 13 列宽，整张表在真终端里会错位
-  const plain = String(text).replace(/\x1b\[[0-9;]*m/g, '');
+  const plain = stripControl(text).replace(/\x1b\[[0-9;]*m/g, '');
   let width = 0;
   for (const ch of plain) {
     const cp = ch.codePointAt(0);

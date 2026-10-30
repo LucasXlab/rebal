@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from 'csv-parse/sync';
 import { IssueList, RebalError } from './errors.js';
-import { isCurrencyCode, isSymbolCode, parseAmount } from './util.js';
+import { hasControlChar, isCurrencyCode, isSymbolCode, parseAmount } from './util.js';
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_ROWS = 5000;
@@ -127,6 +127,12 @@ export function readHoldings(filePath, mapping) {
       issues.add('holdings_invalid', `${path.basename(filePath)}:${line}`, 'account 最长 40 个字符');
       return;
     }
+    // CSV 可能来自别处（券商导出、同事转发）。账户名会直接打进终端表格，
+    // 带 ESC 的账户名可以清屏或隐藏数字，所以在入口就拒掉，不放行到显示层。
+    if (hasControlChar(account)) {
+      issues.add('holdings_invalid', `${path.basename(filePath)}:${line}`, 'account 不能包含控制字符或 ANSI 转义');
+      return;
+    }
 
     const rawCurrency = get('currency');
     let currency = null;
@@ -153,6 +159,10 @@ export function readHoldings(filePath, mapping) {
     const name = get('name') ?? '';
     if (name.length > 80) {
       issues.add('holdings_invalid', `${path.basename(filePath)}:${line}`, 'name 最长 80 个字符');
+      return;
+    }
+    if (hasControlChar(name)) {
+      issues.add('holdings_invalid', `${path.basename(filePath)}:${line}`, 'name 不能包含控制字符或 ANSI 转义');
       return;
     }
 

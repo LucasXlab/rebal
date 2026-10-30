@@ -48,6 +48,29 @@ export async function nextPlanId(options) {
 }
 
 /**
+ * 只挑 SPEC §3.6 列出的订单字段。
+ * 渲染层会在 orders 上挂 `classLabel` 之类的内部字段；计划文件与 --json 是
+ * schemaVersion 1 的契约，多一个键就会让下游消费者对不上，所以在这里筛掉。
+ * @param {any[]} orders
+ * @returns {any[]}
+ */
+export function toPlanOrders(orders) {
+  return orders.map((o) => ({
+    symbol: o.symbol,
+    side: o.side,
+    classId: o.classId,
+    quantity: o.quantity,
+    lotSize: o.lotSize,
+    unitPrice: o.unitPrice,
+    currency: o.currency,
+    fxRate: o.fxRate,
+    value: o.value,
+    valueBase: o.valueBase,
+    feeBase: o.feeBase,
+  }));
+}
+
+/**
  * 组装 Plan 对象（字段与 SPEC §3.6 一一对应）。
  * @param {object} options
  * @param {string} options.planId
@@ -85,7 +108,7 @@ export function buildPlan(options) {
     policy: { ...options.policy },
     pricesAsOf,
     snapshot,
-    orders: options.allocation.orders,
+    orders: toPlanOrders(options.allocation.orders),
     skipped: options.allocation.skipped,
     warnings: options.allocation.warnings,
     before: options.allocation.before,

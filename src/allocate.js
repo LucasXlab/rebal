@@ -60,7 +60,7 @@ export function allocate(input) {
   };
 
   /** 类别当前市值（本币）。 */
-  const labelOf = (classId) => classes.find((c) => c.classId === classId)?.label ?? classId;
+  const labelOf = (classId) => classes.find((c) => c.classId === classId)?.label || classId;
   const classValue = (classId) => {
     let sum = 0;
     for (const [symbol, row] of holdings) {

@@ -123,12 +123,17 @@ export async function resolveFx(options) {
           issues: [{ path: runtime.mockFxFile, message: `在 rates 里加 "${currency}"` }],
         });
       }
+      // stale 与 mock 行情同口径：示例数据的时间是固定的，超过 TTL 就该显示"缓存"。
+      // 之前这里硬写 false，导致同一份示例数据里行情显示"缓存"、汇率显示"新"，
+      // 读者会以为汇率不会过期。
+      const fetchedAtMs = Date.parse(mock.fetchedAt);
+      const effectiveMs = Number.isFinite(fetchedAtMs) ? fetchedAtMs : now();
       fx.set(currency, {
         rateToBase: rate,
         source: 'mock',
         fetchedAt: mock.fetchedAt,
-        fetchedAtMs: Date.parse(mock.fetchedAt) || now(),
-        stale: false,
+        fetchedAtMs: effectiveMs,
+        stale: now() - effectiveMs > ttlMs,
       });
     }
     return { fx, warnings };

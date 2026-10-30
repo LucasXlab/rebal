@@ -76,7 +76,7 @@ export function valuate(options) {
     const driftPp = targetAfterBase > 0 ? (driftBase / targetAfterBase) * 100 : 0;
     return {
       classId,
-      label: config.classes?.[classId]?.name ?? classId,
+      label: config.classes?.[classId]?.name || classId,
       targetWeight,
       band,
       valueBase,

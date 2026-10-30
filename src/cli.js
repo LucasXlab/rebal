@@ -12,7 +12,7 @@ import { parseArgs } from 'node:util';
 import { asRebalError, EXIT, RebalError } from './errors.js';
 import { loadBasics, loadPrices } from './load.js';
 import { allocate } from './allocate.js';
-import { buildPlan, comparePlan, loadPlan, nextPlanId, savePlan } from './plan.js';
+import { buildPlan, comparePlan, loadPlan, nextPlanId, savePlan, toPlanOrders } from './plan.js';
 import { layoutFor, makeColor, renderTable } from './format/table.js';
 import { renderPrices, renderStatus } from './format/status.js';
 import { sourceLabel } from './format/status.js';
@@ -23,6 +23,7 @@ import {
   formatPrice,
   groupInteger,
   roundHalfUp,
+  stripControl,
   truncateWidth,
 } from './util.js';
 import { DEMO_HOLDINGS, DEMO_TOML, TEMPLATE_HOLDINGS, TEMPLATE_TOML } from './templates.js';
@@ -85,6 +86,78 @@ const COMMAND_OPTIONS = {
 };
 
 const COMMANDS = Object.keys(COMMAND_OPTIONS);
+
+/**
+ * 单个命令的说明（`rebal help <命令>`，SPEC §4.7 要求给出该命令的参数与退出码）。
+ * 只写这一条命令需要知道的东西；通用参数与退出码总表由 `rebal help` 给。
+ */
+const COMMAND_HELP = {
+  init: `rebal init — 生成一份能跑的配置与持仓模板
+
+用法：rebal init [--demo] [--force] [--dir <目录>]
+
+参数：
+  --demo       写入示例持仓，行情与汇率都用内置示例数据（不需要联网）
+  --force      覆盖已存在的 rebal.toml / holdings.csv
+  --dir <目录> 写到哪个目录（默认当前目录，不存在会自动创建）
+
+生成：rebal.toml、holdings.csv
+
+退出码：0 成功；2 文件已存在（config_exists）、目录不可写（init_dir_unwritable）
+下一步：rebal status`,
+  status: `rebal status — 当前各类资产的比例、偏离与是否越界
+
+用法：rebal status [--strict] [--json]
+
+参数：
+  --strict     有任一类别越界时退出码 4（适合放进定时任务做告警）
+  --json       输出机器可读 JSON
+
+退出码：0 正常；2 配置/持仓错误；3 取不到行情或汇率；4 --strict 且越界`,
+  plan: `rebal plan — 这笔钱怎么买：订单清单 + 执行后偏离
+
+用法：rebal plan [--cash <金额>] [--sell | --no-sell] [--no-save] [--json]
+
+参数：
+  --cash <金额>  本次投入多少钱（本币，≥0，≤1e9）。不给就用配置里的 contribution.amount
+  --sell         本次允许卖出超配的类别（覆盖 policy.allow_sell）
+  --no-sell      本次禁止卖出（覆盖 policy.allow_sell = true）
+  --no-save      不写计划文件，也不清理旧计划
+  --json         输出完整的 Plan 对象
+
+退出码：0 有订单（并写计划）；2 参数/配置错误、没给金额也没有 contribution.amount；
+        3 取不到行情或汇率；4 没有可执行的下单（no_actionable_orders）
+下一步：照着下单，然后更新 holdings.csv，再 rebal check`,
+  check: `rebal check — 上期计划执行了没有
+
+用法：rebal check [--plan <planId|latest>] [--strict] [--json]
+
+参数：
+  --plan <id>   核对哪一份计划（默认 latest）
+  --strict      有订单不是"完成"时退出码 4
+  --json        输出机器可读 JSON
+
+退出码：0 核对完成；2 计划不存在（plan_not_found）或损坏（plan_corrupt）；
+        4 --strict 且未全部完成`,
+  prices: `rebal prices — 这次用到的价格与汇率从哪来
+
+用法：rebal prices [--refresh] [--offline] [--json]
+
+参数：
+  --refresh     忽略缓存 TTL，重新取一次
+  --offline     只用缓存，不联网（与 --refresh 互斥）
+  --json        输出机器可读 JSON
+
+退出码：0 正常；2 参数矛盾；3 取不到行情或汇率`,
+  version: `rebal version — 打印版本号
+
+用法：rebal version [--json]`,
+  help: `rebal help — 用法总览，或某个命令的说明
+
+用法：rebal help [命令]
+  rebal help          全部命令与通用参数
+  rebal help plan     只看 plan 的参数与退出码`,
+};
 
 /**
  * @typedef {object} App
@@ -162,9 +235,20 @@ export async function run(argv, overrides = {}) {
     switch (command) {
       case 'version':
         return commandVersion(ctx);
-      case 'help':
-        app.stdout(HELP);
+      case 'help': {
+        const topic = ctx.positionals[0];
+        if (!topic) {
+          app.stdout(HELP);
+          return EXIT.OK;
+        }
+        if (!COMMANDS.includes(topic)) {
+          throw new RebalError('usage', `没有 ${topic} 这个命令`, {
+            issues: [{ path: topic, message: `可用命令：${COMMANDS.join('、')}` }],
+          });
+        }
+        app.stdout(`${COMMAND_HELP[topic]}\n`);
         return EXIT.OK;
+      }
       case 'init':
         return commandInit(ctx);
       case 'status':
@@ -220,6 +304,15 @@ function translateParseArgsError(err, command) {
       { issues: [] },
     );
   }
+  // `--cash -100`：parseArgs 把 -100 当成另一个选项，报 "argument is ambiguous"。
+  // 这是负数金额最常见的写法，直接告诉用户写成 --cash=-100 就行。
+  const ambiguous = /Option '(--?[^']+)' argument is ambiguous/.exec(raw);
+  if (ambiguous) {
+    const option = ambiguous[1];
+    return new RebalError('usage', `${option} 的值不能以 - 开头（会被当成另一个参数）`, {
+      issues: [{ path: option, message: `写成 ${option}=-100；金额必须是 0–1e9 的数字` }],
+    });
+  }
   return new RebalError('usage', `命令行参数不认识：${raw}`, { issues: [usage] });
 }
 
@@ -266,6 +359,30 @@ function editDistance(a, b) {
 function parseCommandLine(argv) {
   const positionals = argv.filter((arg) => !arg.startsWith('-'));
   const command = positionals[0] ?? 'help';
+  // `rebal help plan` 的 "plan" 是参数而不是多余的位置参数（SPEC §4.7）。
+  // help 只认全局选项，所以这里用 allowPositionals 再解析一次，好把
+  // `rebal help --dir /x plan` 里的 /x 正确当成 --dir 的值而不是命令名。
+  if (command === 'help') {
+    const rest = argv.filter((arg) => arg !== command);
+    let helpParsed;
+    try {
+      helpParsed = parseArgs({
+        args: rest,
+        options: GLOBAL_OPTIONS,
+        allowPositionals: true,
+        strict: true,
+      });
+    } catch (err) {
+      throw translateParseArgsError(err, 'help');
+    }
+    const topics = helpParsed.positionals;
+    if (topics.length > 1) {
+      throw new RebalError('usage', `help 一次只能看一个命令：${topics.join(' ')}`, {
+        issues: [{ path: 'help', message: '例如：rebal help plan' }],
+      });
+    }
+    return { command, values: helpParsed.values, positionals: topics };
+  }
   if (!COMMANDS.includes(command)) {
     const looksLikeFlag = positionals.length === 0 && argv.length > 0;
     throw new RebalError('usage', looksLikeFlag ? `缺少命令` : `未知命令：${command}`, {
@@ -449,7 +566,7 @@ async function commandPlan(ctx) {
   const allocation = allocate({
     classes: Object.entries(loaded.config.targets).map(([classId, targetWeight]) => ({
       classId,
-      label: loaded.config.classes[classId]?.name ?? classId,
+      label: loaded.config.classes[classId]?.name || classId,
       targetWeight,
       band: loaded.config.bands.byClass[classId] ?? loaded.config.bands.default,
       preferredSymbol: loaded.config.classes[classId]?.preferredSymbol ?? null,
@@ -503,7 +620,7 @@ async function commandPlan(ctx) {
       quantity: row.quantity,
       accounts: Object.fromEntries(row.accounts),
     })),
-    orders: allocation.orders,
+    orders: toPlanOrders(allocation.orders),
     skipped: allocation.skipped,
     warnings: allocation.warnings,
     before: allocation.before,
@@ -649,7 +766,7 @@ function reportError(app, err, json, argv) {
   if (json) {
     app.stdout(`${JSON.stringify(err.toJSON(), null, 2)}\n`);
   } else {
-    app.stderr(`rebal: error: ${err.message} [${err.code}]\n`);
+    app.stderr(`rebal: error: ${stripControl(err.message)} [${err.code}]\n`);
     // 第一行已经是完整句子时，加了路径前缀再重复一遍没有信息量
     const bareMessage = err.message.replace(/\s*\[[a-z0-9_]+\]\s*$/, '').trim();
     const shown = err.issues.filter((issue) => {
@@ -657,7 +774,7 @@ function reportError(app, err, json, argv) {
       return !(bareMessage.length > 8 && issue.message.includes(bareMessage));
     });
     for (const issue of shown.slice(0, 6)) {
-      app.stderr(`  ${issue.path}: ${issue.message}\n`);
+      app.stderr(`  ${stripControl(issue.path)}: ${stripControl(issue.message)}\n`);
     }
     if (shown.length > 6) app.stderr(`  还有 ${shown.length - 6} 条\n`);
     const hint = HINTS[err.code];
@@ -737,7 +854,9 @@ function renderPlan(options) {
         key: 'name',
         title: '名称',
         align: 'left',
-        render: (o) => truncateWidth(loaded.config.assets[o.symbol]?.name ?? '', 22),
+        // config 里 name 缺省是空字符串（不是 null），所以用 || 而不是 ??：
+        // 空名字要显示 —（DESIGN 2.2），显示空白会让人以为解析失败
+        render: (o) => truncateWidth(loaded.config.assets[o.symbol]?.name || '—', 22),
         onlyIn: ['full'],
       },
       { key: 'class', title: '类别', align: 'left', render: (o) => o.classLabel ?? o.classId },
@@ -772,7 +891,10 @@ function renderPlan(options) {
   }
 
   lines.push(
-    `执行后  ${allocation.after.classes.map((c) => `${c.id} ${formatDrift(c.driftPp)}`).join(' · ')}`,
+    // 用类别名（没有 name 时回退 ID），跟上面表格里的「类别」列保持一致
+    `执行后  ${allocation.after.classes
+      .map((c) => `${loaded.config.classes[c.id]?.name || c.id} ${formatDrift(c.driftPp)}`)
+      .join(' · ')}`,
   );
 
   if (!quiet && allocation.warnings.length > 0) {

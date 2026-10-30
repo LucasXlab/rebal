@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse as parseToml, TomlError } from 'smol-toml';
 import { IssueList, RebalError } from './errors.js';
-import { isCurrencyCode, isSymbolCode, parseAmount } from './util.js';
+import { hasControlChar, isCurrencyCode, isSymbolCode, parseAmount } from './util.js';
 
 /** 包根目录（用来定位内置 fixtures）。 */
 export const PACKAGE_ROOT = path.resolve(import.meta.dirname, '..');
@@ -156,6 +156,8 @@ export function normalizeConfig(raw, issues, configPath = 'rebal.toml') {
     if (p.name !== undefined) {
       if (typeof p.name !== 'string' || p.name.length < 1 || p.name.length > 60) {
         issues.add('config_invalid', at('portfolio.name'), 'portfolio.name 必须是 1–60 个字符');
+      } else if (hasControlChar(p.name)) {
+        issues.add('config_invalid', at('portfolio.name'), 'portfolio.name 不能包含控制字符或 ANSI 转义');
       } else {
         cfg.portfolio.name = p.name;
       }
@@ -391,6 +393,8 @@ export function normalizeConfig(raw, issues, configPath = 'rebal.toml') {
             at(`classes.${classId}.name`),
             `classes.${classId}.name 必须是 0–20 字符的字符串（终端里要放得下）`,
           );
+        } else if (hasControlChar(entry.name)) {
+          issues.add('config_invalid', at(`classes.${classId}.name`), `classes.${classId}.name 不能包含控制字符`);
         } else if (entry.name.trim() !== '') {
           label = entry.name.trim();
         }
@@ -438,6 +442,8 @@ export function normalizeConfig(raw, issues, configPath = 'rebal.toml') {
       if (entry.name !== undefined) {
         if (typeof entry.name !== 'string' || entry.name.length > 80) {
           issues.add('config_invalid', at(`assets.${symbol}.name`), 'assets.*.name 必须是 0–80 个字符');
+        } else if (hasControlChar(entry.name)) {
+          issues.add('config_invalid', at(`assets.${symbol}.name`), 'assets.*.name 不能包含控制字符或 ANSI 转义');
         } else {
           asset.name = entry.name;
         }

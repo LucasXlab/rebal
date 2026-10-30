@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 import { makeProject, runCli, validToml } from './helpers.js';
+import { paintStatus } from '../src/format/table.js';
 
 const TENCENT_BODY = [
   'v_usVTI="usVTI~VTI~VTI~300~299~300~";',
@@ -134,4 +135,32 @@ BND,50,ibkr,,,
   const defaultLine = readable.stdout.split('\n').findIndex((line) => line.startsWith('default'));
   assert.ok(ibkrLine > 0 && defaultLine > ibkrLine, '市值大的账户在前');
   assert.ok(path.isAbsolute(project.dir));
+});
+
+test('paintStatus 覆盖 DESIGN 词表每一个词：正常/新/完成=绿，缓存/部分/未执行=黄，越界/超量/反向=红', () => {
+  const seen = { ok: [], warn: [], bad: [], none: [] };
+  const color = (token, text) => {
+    seen[token].push(text);
+    return text;
+  };
+  const ok = ['正常', '新', '完成'];
+  const warn = ['缓存', '部分', '未执行'];
+  const bad = ['越界', '超量', '反向'];
+  for (const word of ok) {
+    seen.ok.length = 0;
+    paintStatus(word, color);
+    assert.deepEqual(seen.ok, [word], `${word} 应该是 ok 色`);
+  }
+  for (const word of warn) {
+    seen.warn.length = 0;
+    paintStatus(word, color);
+    assert.deepEqual(seen.warn, [word], `${word} 应该是 warn 色`);
+  }
+  for (const word of bad) {
+    seen.bad.length = 0;
+    paintStatus(word, color);
+    assert.deepEqual(seen.bad, [word], `${word} 应该是 bad 色`);
+  }
+  // 词表外的词不上色，也不会崩
+  assert.equal(paintStatus('未知词', color), '未知词');
 });

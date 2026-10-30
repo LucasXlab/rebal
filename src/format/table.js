@@ -141,7 +141,7 @@ export function renderTitle(text, options) {
 export function paintStatus(status, color) {
   if (status === '越界' || status === '反向' || status === '超量') return color('bad', status);
   if (status === '缓存' || status === '部分' || status === '未执行') return color('warn', status);
-  if (status === '正常' || status === '完成') return color('ok', status);
+  if (status === '正常' || status === '完成' || status === '新') return color('ok', status);
   return status;
 }
 

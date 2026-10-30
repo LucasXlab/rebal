@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildTencentUrl, decodeGbk, parseTencentResponse } from '../src/quotes/tencent.js';
+import {
+  buildTencentUrl,
+  currencyForQuoteId,
+  decodeGbk,
+  parseTencentResponse,
+} from '../src/quotes/tencent.js';
 import { parseFrankfurter } from '../src/fx/index.js';
 import { redactUrl } from '../src/http.js';
 import { fakeServer, makeProject, runCli, validToml } from './helpers.js';
@@ -207,4 +212,63 @@ test('redactUrl 对敏感参数与 userinfo 打码', () => {
     assert.ok(!redactUrl(url).includes('abc123'), `${url} 打码失败：${redactUrl(url)}`);
   }
   assert.equal(redactUrl('https://api.example.com/x?a=1'), 'https://api.example.com/x?a=1');
+});
+
+test('腾讯行情按 GBK 解码名称；币种由 quote_id 前缀推断，与配置不符要报错', async (t) => {
+  // 名称字段是 GBK 字节："沪深300ETF"
+  const nameGbk = Buffer.from([0xbb, 0xa6, 0xc9, 0xee, 0x33, 0x30, 0x30, 0x45, 0x54, 0x46]);
+  const body = Buffer.concat([
+    Buffer.from('v_usVTI="200~Vanguard Total Stock Market ETF~VTI.AM~300~299~300~";\n'),
+    Buffer.from('v_usBND="200~Vanguard Total Bond Market ETF~BND.AM~70~69~70~";\n'),
+    Buffer.concat([Buffer.from('v_sh510300="200~'), nameGbk, Buffer.from('~510300.SH~4~3.98~4~";')]),
+    Buffer.from('\nv_pv_none_match="1";'),
+  ]);
+  const server = await fakeServer(() => ({ status: 200, body }));
+  try {
+    const project = makeProject(t, { toml: validToml({ quoteProvider: 'tencent' }) });
+    const result = await runCli(['prices'], project, {
+      fetch: globalThis.fetch,
+      env: { REBAL_QUOTE_URL: `${server.url}/q=` },
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.ok(result.stdout.includes('沪深300ETF'), `名称应按 GBK 解出中文，实际：${result.stdout}`);
+    assert.ok(result.stdout.includes('Vanguard Total Stock Ma'), '长名称按 24 列截断');
+  } finally {
+    await server.close();
+  }
+
+  // 币种口径：quote_id 前缀决定市场
+  assert.equal(currencyForQuoteId('usVTI'), 'USD');
+  assert.equal(currencyForQuoteId('sh510300'), 'CNY');
+  assert.equal(currencyForQuoteId('sz159915'), 'CNY');
+  assert.equal(currencyForQuoteId('hk00700'), 'HKD');
+  assert.equal(currencyForQuoteId('xxxxx'), null, '不认识的前缀不校验');
+
+  // 把美股代码写进 A 股资产 → 必须报 quote_invalid，不能按错汇率算下去
+  const wrongToml = validToml({ quoteProvider: 'tencent' }).replace(
+    'quote_id = "sh510300"',
+    'quote_id = "us510300"',
+  );
+  const wrongProject = makeProject(t, { toml: wrongToml });
+  const server2 = await fakeServer(() => ({
+    status: 200,
+    body: [
+      'v_usVTI="200~VTI~VTI.AM~300~299~300~";',
+      'v_usBND="200~BND~BND.AM~70~69~70~";',
+      'v_us510300="200~某美股~510300.XX~4~3.98~4~";',
+    ].join('\n'),
+  }));
+  try {
+    const result = await runCli(['status'], wrongProject, {
+      fetch: globalThis.fetch,
+      env: { REBAL_QUOTE_URL: `${server2.url}/q=` },
+    });
+    // SPEC §4.1 把 quote_invalid 归为外部数据错误（退出码 3）
+    assert.equal(result.code, 3, '币种与市场不符要停下，不能按错汇率算');
+    assert.match(result.stderr, /quote_invalid/);
+    assert.match(result.stderr, /USD/);
+    assert.match(result.stderr, /CNY/);
+  } finally {
+    await server2.close();
+  }
 });

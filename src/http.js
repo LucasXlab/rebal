@@ -6,6 +6,7 @@
  */
 
 import { RebalError } from './errors.js';
+import { decodeBody } from './text.js';
 
 export const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -53,7 +54,7 @@ export function createHttp(deps = {}) {
   /**
    * 取一个文本资源。
    * @param {string} url
-   * @param {{timeoutMs?: number, retries?: number, maxBytes?: number, provider?: 'quotes'|'fx', headers?: Record<string,string>}} [options]
+   * @param {{timeoutMs?: number, retries?: number, maxBytes?: number, provider?: 'quotes'|'fx', headers?: Record<string,string>, charset?: 'utf8'|'gbk'}} [options]
    * @returns {Promise<{status: number, body: string, headers: Headers}>}
    */
   async function requestText(url, options = {}) {
@@ -77,7 +78,12 @@ export function createHttp(deps = {}) {
         log.debug(`GET ${redactUrl(url)}`);
         const startedAt = Date.now();
         stats.requests += 1;
-        const result = await once(url, { timeoutMs, maxBytes, headers: options.headers });
+        const result = await once(url, {
+        timeoutMs,
+        maxBytes,
+        headers: options.headers,
+        charset: options.charset ?? 'utf8',
+      });
         log.info(`请求完成 HTTP ${result.status}，${Date.now() - startedAt}ms：${redactUrl(url)}`);
         log.debug(`响应前 200 字符：${String(result.body).slice(0, 200)}`);
         if (result.status >= 200 && result.status < 300) return result;
@@ -121,7 +127,7 @@ export function createHttp(deps = {}) {
   /**
    * 发一次请求，超时用 AbortController，读体时按字节数截断。
    * @param {string} url
-   * @param {{timeoutMs: number, maxBytes: number, headers?: Record<string,string>}} options
+   * @param {{timeoutMs: number, maxBytes: number, headers?: Record<string,string>, charset?: 'utf8'|'gbk'}} options
    */
   async function once(url, options) {
     const controller = new AbortController();
@@ -144,7 +150,7 @@ export function createHttp(deps = {}) {
       clearTimeout(timer);
     }
 
-    const body = await readBodyCapped(response, options.maxBytes, url);
+    const body = await readBodyCapped(response, options.maxBytes, url, options.charset ?? 'utf8');
     return { status: response.status, body, headers: response.headers };
   }
 
@@ -156,9 +162,10 @@ export function createHttp(deps = {}) {
  * @param {Response} response
  * @param {number} maxBytes
  * @param {string} url
+ * @param {'utf8'|'gbk'} charset
  * @returns {Promise<string>}
  */
-async function readBodyCapped(response, maxBytes, url) {
+async function readBodyCapped(response, maxBytes, url, charset = 'utf8') {
   if (!response.body) return '';
   const reader = response.body.getReader();
   const chunks = [];
@@ -180,7 +187,7 @@ async function readBodyCapped(response, maxBytes, url) {
     chunks.push(value);
   }
   const buffer = Buffer.concat(chunks.map((c) => Buffer.from(c)));
-  return buffer.toString('utf8');
+  return decodeBody(buffer, charset);
 }
 
 /**

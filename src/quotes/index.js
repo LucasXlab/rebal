@@ -5,7 +5,7 @@
 
 import { RebalError } from '../errors.js';
 import { lookup, store } from '../cache.js';
-import { fetchTencent, quoteNotFound } from './tencent.js';
+import { currencyForQuoteId, fetchTencent, quoteNotFound } from './tencent.js';
 import { readPriceFile } from './csv.js';
 import { readMockQuotes } from './mock.js';
 
@@ -102,6 +102,8 @@ export async function resolveQuotes(options) {
           fetchedAt: hit.entry.fetchedAt,
           fetchedAtMs: hit.entry.fetchedAtMs,
           stale: hit.stale,
+          upstreamName: hit.entry.upstreamName,
+          upstreamCode: hit.entry.upstreamCode,
         });
         if (hit.stale) warnings.push(`${symbol} 使用缓存价格，缓存截至 ${hit.entry.fetchedAt}`);
         continue;
@@ -128,6 +130,8 @@ export async function resolveQuotes(options) {
           fetchedAt: hit.entry.fetchedAt,
           fetchedAtMs: hit.entry.fetchedAtMs,
           stale: true,
+          upstreamName: hit.entry.upstreamName,
+          upstreamCode: hit.entry.upstreamCode,
         });
         warnings.push(`${symbol} 使用缓存价格，缓存截至 ${hit.entry.fetchedAt}`);
         continue;
@@ -175,6 +179,23 @@ export async function resolveQuotes(options) {
           const fetchedAtMs = now();
           const fetchedAt = options.formatIso(fetchedAtMs);
           for (const entry of entries) {
+            // quote_id 的前缀决定市场，市场决定币种。和配置对不上就停下：
+            // 宁可这次跑不成，也不能用错的汇率算出订单（美股代码写进 A 股资产是最常见的错）。
+            const marketCurrency = currencyForQuoteId(quoteId);
+            if (marketCurrency && marketCurrency !== entry.currency) {
+              throw new RebalError(
+                'quote_invalid',
+                `${entry.symbol} 的币种与 quote_id 不匹配：${quoteId} 属于 ${marketCurrency} 市场，配置写的是 ${entry.currency}`,
+                {
+                  issues: [
+                    {
+                      path: `assets.${entry.symbol}`,
+                      message: `上游返回 ${hit.code ?? quoteId}（${hit.name ?? '无名称'}）；检查 quote_id 前缀（us/sh/sz/hk）与 currency 是否写混了`,
+                    },
+                  ],
+                },
+              );
+            }
             quotes.set(entry.symbol, {
               price: hit.price,
               currency: entry.currency,
@@ -183,6 +204,8 @@ export async function resolveQuotes(options) {
               fetchedAt,
               fetchedAtMs,
               stale: false,
+              upstreamName: hit.name,
+              upstreamCode: hit.code,
             });
             store(cache, 'quotes', entry.symbol, {
               price: hit.price,
@@ -192,6 +215,8 @@ export async function resolveQuotes(options) {
               source: 'tencent',
               provider: 'tencent',
               quoteId,
+              upstreamName: hit.name,
+              upstreamCode: hit.code,
             });
             // 逐符号落盘：中途失败时已取到的部分下次仍可用
             options.persistCache?.();

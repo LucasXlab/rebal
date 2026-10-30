@@ -6,28 +6,41 @@
  */
 
 import { RebalError } from '../errors.js';
+import { decodeGbk } from '../text.js';
+
+export { decodeGbk };
 
 /**
- * 把 GBK 字节解成字符串。Node 官方构建带 full-icu，`TextDecoder('gbk')` 可用；
- * 万一不可用（自定义 small-icu 构建），退化为按 Latin-1 解——价格与数字都是 ASCII，不受影响。
- * @param {Uint8Array} bytes
- * @returns {string}
+ * 腾讯的 quote_id 前缀决定市场，市场决定币种。这个映射是稳定契约，
+ * 不依赖响应里第几段是什么（沪深与美股的字段布局并不一样，按固定下标取币种会取错）。
  */
-export function decodeGbk(bytes) {
-  try {
-    return new TextDecoder('gbk').decode(bytes);
-  } catch {
-    return new TextDecoder('latin1').decode(bytes);
-  }
+export const MARKET_CURRENCY = Object.freeze({
+  us: 'USD',
+  sh: 'CNY',
+  sz: 'CNY',
+  hk: 'HKD',
+});
+
+/**
+ * 由 quote_id 推断上游市场币种；前缀不认识时返回 null（不校验）。
+ * @param {string} quoteId
+ * @returns {string|null}
+ */
+export function currencyForQuoteId(quoteId) {
+  const prefix = /^([a-z]{2})/.exec(quoteId)?.[1];
+  return prefix ? (MARKET_CURRENCY[prefix] ?? null) : null;
 }
 
 /**
- * 解析响应文本，返回 quote_id → {price, currency}。
+ * 解析响应文本，返回 quote_id → {price, code, name}。
+ *
+ * 保留上游给的代码与名称：`prices` 会把它们显示出来供人核对，
+ * 这是"写错一个字母就买到别的标的"这类错误唯一能被人眼抓住的地方。
  * @param {string} text
- * @returns {Map<string, {price: number}>}
+ * @returns {Map<string, {price: number, code: string|null, name: string|null}>}
  */
 export function parseTencentResponse(text) {
-  /** @type {Map<string, {price: number}>} */
+  /** @type {Map<string, {price: number, code: string|null, name: string|null}>} */
   const result = new Map();
   for (const line of String(text).split(';')) {
     const match = /^\s*v_([A-Za-z0-9._-]+)="(.*)"\s*$/.exec(line);
@@ -37,7 +50,11 @@ export function parseTencentResponse(text) {
     if (fields.length <= 3) continue;
     const price = Number(fields[3]);
     if (!Number.isFinite(price) || price <= 0) continue;
-    result.set(quoteId, { price });
+    result.set(quoteId, {
+      price,
+      code: fields[2] ? String(fields[2]).trim() : null,
+      name: fields[1] ? String(fields[1]).trim() : null,
+    });
   }
   return result;
 }
@@ -65,6 +82,8 @@ export async function fetchTencent(http, options) {
     retries: options.retries,
     provider: 'quotes',
     headers: options.headers,
+    // 腾讯返回 GBK；不按 GBK 解会得到乱码名称
+    charset: 'gbk',
   });
   return parseTencentResponse(response.body);
 }

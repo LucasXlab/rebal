@@ -8,6 +8,7 @@ import {
   formatMoney,
   formatPercent,
   formatPrice,
+  truncateWidth,
 } from '../util.js';
 import { makeColor, paintStatus, renderTable, renderTitle } from './table.js';
 
@@ -102,6 +103,13 @@ export function renderPrices(options) {
   const lines = [];
   const quoteColumns = [
     { key: 'symbol', title: '代码', align: 'left', render: (r) => r.symbol },
+    {
+      key: 'upstreamName',
+      title: '行情里的名称',
+      align: 'left',
+      render: (r) => truncateWidth(r.upstreamName ?? '—', 24),
+      onlyIn: ['full'],
+    },
     { key: 'price', title: '价格', align: 'right', render: (r) => formatPrice(r.price, r.currency) },
     { key: 'currency', title: '货币', align: 'left', render: (r) => r.currency },
     { key: 'source', title: '来源', align: 'left', render: (r) => sourceLabel(r.source, r.provider) },

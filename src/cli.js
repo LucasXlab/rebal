@@ -909,7 +909,8 @@ function renderPlan(options) {
   if (planFile) {
     lines.push('');
     lines.push(color('dim', `计划已保存：${path.relative(loaded.paths.dir, planFile)}`));
-    lines.push(color('dim', '下期核对：rebal check'));
+    // 说清 check 依赖手动更新持仓，否则用户会以为它自动对账
+    lines.push(color('dim', '成交后更新 holdings.csv，再运行 rebal check'));
   }
   return `${lines.join('\n').trimEnd()}\n`;
 }

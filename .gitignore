@@ -4,9 +4,12 @@ node_modules/
 # 参照仓库（只读，不提交）
 reference/
 
-# 本地配置与数据
+# 本地配置与数据（真实持仓与状态目录绝不入库）
 .env
+.rebal/
 data/
+rebal.toml
+holdings.csv
 
 # 系统文件
 .DS_Store

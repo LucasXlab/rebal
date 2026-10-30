@@ -49,6 +49,14 @@ export function renderStatus(options) {
   } else {
     const columns = [
       { key: 'class', title: '资产类别', align: 'left', render: (r) => r.label },
+      {
+        // 只有百分比不够用：被问得最多的就是"这一类到底有多少钱"
+        key: 'value',
+        title: '市值',
+        align: 'right',
+        render: (r) => formatMoney(r.valueBase, portfolio.baseCurrency),
+        onlyIn: ['full'],
+      },
       { key: 'target', title: '目标', align: 'right', render: (r) => formatPercent(r.targetWeight) },
       { key: 'actual', title: '当前', align: 'right', render: (r) => formatPercent(r.actualRatio) },
       { key: 'drift', title: '偏离', align: 'right', render: (r) => formatDrift(r.driftPp) },

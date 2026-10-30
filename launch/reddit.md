@@ -38,7 +38,7 @@ It does not do tax lots, TLH, or backtesting, and it will not place orders.
 
 Caveats: quotes come from a Chinese public endpoint (Tencent) and FX from ECB daily reference rates, so it is estimate-grade, not trading-grade. The UI is Chinese-only at the moment.
 
-Repo: https://github.com/LucasXlab/rebal — MIT, 62 tests, no network in tests.
+Repo: https://github.com/LucasXlab/rebal — MIT, 63 tests, no network in tests.
 
 I would especially like to hear from people rebalancing across multiple brokers: how do you handle the lot-size problem, and do you use bands or calendar-based rebalancing?
 

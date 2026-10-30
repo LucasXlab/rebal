@@ -325,6 +325,18 @@ lot_size = 1                  # 整数 1–1000000
 
 `after.totalBase` 就是 5.6 的 `afterTotalBase`（含未花完的现金、已扣手续费）。
 
+**两个 `totalBase` 的含义不同，读 JSON 时别混用：**
+
+| 字段 | 含义 | 等式 |
+|---|---|---|
+| `before.totalBase` | **执行前的持仓市值**（不含本次投入的现金） | `= Σ before.classes[].valueBase` |
+| `after.totalBase` | **执行后的总资产**（持仓 + 没花完的现金 − 手续费） | `= before.totalBase + cash - feesTotal`<br>`= Σ after.classes[].valueBase + remainingCash` |
+
+也就是说 `after.totalBase` 恒等于"各类别市值之和 + 剩余现金"，闲置现金不会被算成已投资。
+执行后的偏离以 `after.totalBase` 为分母，所以"钱没投出去"这件事本身就体现为各类别偏负——
+这是有意的：没按目标买入，你就是偏离目标的。不变量由测试 `不变量：after.totalBase 恒等于
+Σ afterClasses + remainingCash` 守住。
+
 ### 3.8 CheckReport
 
 ```json

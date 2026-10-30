@@ -212,3 +212,57 @@ test('T40 内部不舍入：中途舍入会少买一手，本例必须买得到'
   assert.equal(result.orders[0].quantity, 3, '10 / 3.3333… = 3 手，中途舍入会只买到 2 手');
   assert.ok(result.remainingCash >= 0, '余额不能为负');
 });
+
+test('不变量：after.totalBase 恒等于 Σ afterClasses + remainingCash（含现金与手续费）', () => {
+  const classes = [
+    { classId: 'a', targetWeight: 0.5, band: 0.03, preferredSymbol: 'A' },
+    { classId: 'b', targetWeight: 0.3, band: 0.03, preferredSymbol: 'B' },
+    { classId: 'c', targetWeight: 0.2, band: 0.03, preferredSymbol: 'C' },
+  ];
+  const assets = {
+    A: { classId: 'a', currency: 'CNY', lotSize: 10 },
+    B: { classId: 'b', currency: 'CNY', lotSize: 10 },
+    C: { classId: 'c', currency: 'CNY', lotSize: 10 },
+  };
+  const quotes = new Map([
+    ['A', { price: 10 }],
+    ['B', { price: 50 }],
+    ['C', { price: 20 }],
+  ]);
+  const fx = new Map([['CNY', { rateToBase: 1 }]]);
+  const holdings = new Map([
+    ['A', { quantity: 30 }],
+    ['B', { quantity: 5 }],
+  ]);
+
+  // 覆盖四种情形：有空闲现金 / 丢弃低额买单 / 允许卖出 / 没有新增现金
+  const cases = [
+    { cash: 1000, minTradeValue: 100, allowSell: false },
+    { cash: 1000, minTradeValue: 450, allowSell: false },
+    { cash: 3000, minTradeValue: 100, allowSell: true },
+    { cash: 0, minTradeValue: 100, allowSell: true },
+  ];
+  for (const item of cases) {
+    const result = allocate({
+      classes,
+      assets,
+      holdings,
+      quotes,
+      fx,
+      cash: item.cash,
+      policy: { allowSell: item.allowSell, minTradeValue: item.minTradeValue, maxOrders: 20 },
+      feesPerOrder: 1,
+      baseCurrency: 'CNY',
+    });
+    const sumAfter = result.after.classes.reduce((sum, c) => sum + c.valueBase, 0);
+    assert.ok(
+      Math.abs(sumAfter + result.remainingCash - result.after.totalBase) < 1e-9,
+      `情形 ${JSON.stringify(item)}：Σ类别 ${sumAfter} + 剩余现金 ${result.remainingCash} ≠ after.totalBase ${result.after.totalBase}`,
+    );
+    // before.totalBase 只算持仓，after.totalBase 含未花完的现金、已扣手续费
+    assert.ok(
+      Math.abs(result.after.totalBase - (result.before.totalBase + item.cash - result.feesTotal)) < 1e-9,
+      `情形 ${JSON.stringify(item)}：after.totalBase 口径不是 totalBase + cash - feesTotal`,
+    );
+  }
+});
